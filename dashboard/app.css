@@ -1,4 +1,4 @@
-/* Token Radar v2: dark terminal theme. One palette, two radii, two families. */
+/* Token Radar v3: dark terminal theme. One palette, two radii, two families. */
 :root {
   --canvas: #070d0a;
   --surface: #0e1713;
@@ -102,7 +102,13 @@ tbody tr[data-selected="true"] { background: rgba(0, 230, 154, 0.10); }
 .status.live::before { background: var(--negative); }
 
 .model { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
-.fit { margin-bottom: var(--step-4); padding: var(--step-5); display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: var(--step-5); }
+.valid { margin-bottom: var(--step-4); padding: var(--step-4) var(--step-5); display: grid; gap: var(--step-2); border-color: var(--accent-dim); }
+.valid h2 { font-size: 16px; }
+.valid p { max-width: 110ch; }
+.fit-details { margin-bottom: var(--step-4); }
+.fit-summary { cursor: pointer; padding: var(--step-4) var(--step-5); color: var(--accent); font-weight: 600; font-size: 14px; }
+.fit-summary:hover { color: var(--ink); }
+.fit { padding: 0 var(--step-5) var(--step-5); display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: var(--step-5); }
 .fit h2 { margin-bottom: var(--step-2); }
 .fit-chart svg { width: 100%; height: auto; display: block; }
 .fit-chart p, .fit-table p { margin-top: var(--step-2); }

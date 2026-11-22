@@ -1,45 +1,46 @@
-// Token Radar v2 model (radar-3): a log-log comps fit, not a linear TVL multiple.
+// Token Radar v3 model (radar-4): the v2 log-log comps fit, now with
+// held-out validation, launch odds and expected-value ranking.
 //
-// v2 change: the whole ranked board now applies the watchlist exclusion rule
-// (RULES.txt): a protocol is rankable only if it is pre-token AND not a
-// wrapped, staked or bridged product of a token that already trades. v1
-// ranked bridges and wrapped products at the top (Base Bridge, Coinbase
-// Bridge, WBTC, USDT0, Binance Bitcoin, CCIP); a judge reads those as
-// already-tokenised, so they are now excluded from board.json and shown
-// instead in a separate Excluded view with the reason each one was set
-// aside. The exclusion is the house's own rule, applied to every row, not
-// a hand-picked list of names: category Bridge, Canonical Bridge, Liquid
-// Staking, Liquid Restaking, Restaked BTC or CEX; a name ending in a
-// version marker; a name carrying a whole word wrapped, staked or staking;
-// a name beginning with an exchange's name. All 40 watchlist slugs pass
-// this rule, so coverage stays 40/40.
+// Validation (2026-11-22, run on the same 128 traded protocols; see the
+// build report for the full table): leave-one-out median absolute log
+// error 1.223 (x3.40), 5-fold (seeded, seed 42) median 1.290 (x3.63).
+// Fold slopes 0.483-0.584 and intercepts 5.83-7.74, so the slope is stable
+// and the intercept moves with it, as it must. Alternatives tested on the
+// same held-out folds did not beat it: size-bucketed median multiple
+// x4.37, quadratic in log TVL x3.67, slope fixed at 0.5 x3.59 (a 0.04
+// gain, noise, not a reason to change the fitted slope), category
+// residual multipliers x3.85. So radar-4 keeps the fitted slope 0.522
+// and intercept 6.965: the model is honest about being an
+// order-of-magnitude estimate, and no alternative earned a change.
+// Bootstrap (200 resamples, seed 1234): slope 90% band 0.371-0.679;
+// predicted log mcap at the median traded TVL has a 90% band x1.89 wide
+// (parameter uncertainty, on top of the x3.4 per-protocol dispersion).
 //
-// Fit on the 128 traded protocols in this snapshot with positive mcap and TVL
-// (2026-11-22, recomputed from snapshot.json):
-//   log(mcap_usd) = 6.965 + 0.522 * log(tvl_usd), residual SD 2.08 log units.
-// Multiples are very dispersed (median mcap/TVL falls from 0.42 at TVL $5-50M
-// to 0.013 above $10B), so a linear TVL multiple overvalues the giants and
-// undervalues the small. The residual SD of 2.08 means any single implied
-// value is uncertain by roughly a factor of 8 either way: the board is a
-// ranking claim, not a price.
+// Ranking change: v2 ranked by launch value alone, so Risk Curators
+// (Sentora, Steakhouse, Gauntlet) topped the board. But only 12.8% of
+// Risk Curators in this snapshot ever launched a token (5 of 39), while
+// 78.7% of Lending and 73.7% of Dexs did. A launch value is not a
+// ranking claim until it is weighted by whether a token ever launches.
+// radar-4 ranks by expected value = launch value x launch odds, where
+// launch odds are the category's token share in this snapshot, smoothed
+// toward the overall 54.9% with alpha 10: (k + 10 x 0.549) / (n + 10).
+// Odds on the board run 0.214 (Risk Curators) to 0.759 (Lending).
+// Age is NOT used for odds, on purpose: the token share rises with age
+// (32.5% under a year, 79.7% over four years) because that share is
+// cumulative, a protocol that has had four years to launch and still has
+// not is a worse forward bet, not a better one. The snapshot is one
+// cross-section, so no hazard rate can be fitted from it, and inventing
+// one would be fabrication.
 //
-//   base      = exp(6.965) * tvl_usd ^ 0.522
-//   category  = exp(mean log residual) per category, only where the traded
-//               comps number n >= 4; every other category gets 1.0 (small-n
-//               categories are shrunk all the way to 1.0, never guessed)
-//   growth    = 1 + clamp(change_7d, -30, +60) / 100 * 0.30
-//               (7d growth barely predicts the residual: corr -0.14, so the
-//               weight is modest on purpose)
-//   maturity  = age < 365d: 1.20, 365-729d: 1.10, >= 730d: 0.85, unknown: 1.00
-//               (capped, shrunk versions of the fitted age residuals
-//               +0.69 / +0.25 / -0.19 log units, i.e. 1.99 / 1.28 / 0.83)
-//   implied   = max(1, round(base * category * growth * maturity)), capped
-//               at $10B, then forced strictly decreasing down the board so
-//               every rank's value is distinct.
+// Net farm verdict: every farm plan now ends with a costed verdict:
+// about $X of gas across 8 transactions on the protocol's chain, capital
+// $Y at risk for Z days, against the expected launch value at the
+// category's launch odds. Your share of any launch is unknown, so the
+// verdict says so and treats farming as a lottery ticket, never an
+// investment.
 //
-// No protocol name or slug is ever special-cased: the same function scores
-// every row. The board ranks every rankable pre-token protocol: pre-token,
-// not a CEX, not a versioned pool name. Live-token protocols are kept apart.
+// v2's exclusion rule is unchanged: bridged, wrapped, staked and
+// exchange products stay out of the board with their reasons.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -88,7 +89,41 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
+
+/** Held-out validation of the log-log fit, run 2026-11-22 on the 128 traded protocols (see BUILD_V1.md). */
+export interface ValidationResult {
+  n_traded: number;
+  loo_median_abs_log_error: number;
+  loo_multiple: number;
+  fivefold_median_abs_log_error: number;
+  fivefold_multiple: number;
+  fold_slopes: number[];
+  fold_intercepts: number[];
+  bootstrap_slope_p5: number;
+  bootstrap_slope_p95: number;
+  bootstrap_band_multiple: number;
+  alternatives: { name: string; multiple: number }[];
+}
+
+export const VALIDATION: ValidationResult = {
+  n_traded: 128,
+  loo_median_abs_log_error: 1.223,
+  loo_multiple: 3.4,
+  fivefold_median_abs_log_error: 1.29,
+  fivefold_multiple: 3.63,
+  fold_slopes: [0.483, 0.539, 0.514, 0.584, 0.499],
+  fold_intercepts: [7.741, 6.757, 7.0, 5.826, 7.376],
+  bootstrap_slope_p5: 0.371,
+  bootstrap_slope_p95: 0.679,
+  bootstrap_band_multiple: 1.89,
+  alternatives: [
+    { name: 'size-bucketed median multiple', multiple: 4.37 },
+    { name: 'quadratic in log TVL', multiple: 3.67 },
+    { name: 'slope fixed at 0.5', multiple: 3.59 },
+    { name: 'category-residual multipliers', multiple: 3.85 },
+  ],
+};
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -133,7 +168,7 @@ export interface FarmStep {
   time: string;
 }
 
-/** One row of board.json: the ranked board's row. */
+/** One row of board.json: the ranked board's row. implied_value_usd is the expected value (launch value x launch odds); the launch value itself is kept beside it. */
 export interface BoardRow {
   rank: number;
   slug: string;
@@ -149,6 +184,8 @@ export interface BoardRow {
   token_status: 'pre-token';
   age_days: number | null;
   implied_value_usd: number;
+  launch_value_usd: number;
+  launch_odds: number;
   model: {
     base_value_usd: number;
     category_multiplier: number;
@@ -156,6 +193,9 @@ export interface BoardRow {
     growth_multiplier: number;
     maturity_multiplier: number;
     age_days: number | null;
+    launch_value_usd: number;
+    launch_odds: number;
+    gas_total_usd: number;
   };
   farm_steps: string[];
 }
@@ -173,6 +213,9 @@ export interface RadarRow {
   listed_at: string | null;
   age_days: number | null;
   implied_value_usd: number;
+  launch_value_usd: number;
+  launch_odds: number;
+  gas_total_usd: number;
   base_value_usd: number;
   category_multiplier: number;
   growth_multiplier: number;
@@ -215,6 +258,14 @@ export interface ScatterPoint {
   y: number;
 }
 
+/** One row of the launch-odds table: a category's token share in this snapshot, raw and smoothed. */
+export interface OddsTableRow {
+  category: string;
+  n: number;
+  token_share: number;
+  launch_odds: number;
+}
+
 /** Everything the dashboard needs: the board, the live set, and the model it runs. */
 export interface RadarData {
   as_of: string;
@@ -222,6 +273,8 @@ export interface RadarData {
   floor_usd: number;
   model: ModelConstants;
   model_version: string;
+  validation: ValidationResult;
+  odds_table: OddsTableRow[];
   watchlist_size: number;
   watchlist: string[];
   board_size: number;
@@ -266,8 +319,14 @@ export function maturityMultiplier(age: number | null): number {
   return 0.85;
 }
 
-/** The multipliers and the implied value one protocol gets under `model`. */
-export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: ModelConstants): { implied: number; base: number; catMult: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
+/** The multipliers and the implied value one protocol gets under `model`: the launch value, the category's launch odds, and the expected value (launch x odds), which is what the board ranks by. The odds are rounded to 3 decimals first, and the expected value is computed from the rounded odds, so the page recompute agrees with board.json. */
+export function impliedValue(
+  protocol: SnapshotProtocol,
+  asOf: string,
+  model: ModelConstants,
+  oddsByCategory: Map<string, number>,
+  overallOdds: number,
+): { implied: number; launch: number; odds: number; base: number; catMult: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
@@ -275,8 +334,36 @@ export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: Mo
   const maturityMult = maturityMultiplier(age);
   const catMult = categoryMultiplier(protocol.category);
   const base = Math.exp(model.log_intercept) * Math.pow(Math.max(1, protocol.tvl_usd), model.log_tvl_exponent);
-  const implied = Math.max(1, Math.min(model.implied_cap_usd, Math.round(base * catMult * growthMult * maturityMult)));
-  return { implied, base: Math.round(base), catMult, growthPct, growthMult, maturityMult, age };
+  const launch = Math.max(1, Math.min(model.implied_cap_usd, Math.round(base * catMult * growthMult * maturityMult)));
+  const odds = oddsByCategory.get(protocol.category ?? 'Other') ?? overallOdds;
+  const implied = Math.max(1, Math.round(launch * odds));
+  return { implied, launch, odds, base: Math.round(base), catMult, growthPct, growthMult, maturityMult, age };
+}
+
+/** Launch odds from the snapshot itself: each category's share of protocols that already have a token, smoothed toward the overall share with alpha 10 so small categories are pulled to the middle instead of trusted at 0% or 100%. */
+export function launchOddsTable(snapshot: Snapshot): { overall: number; byCategory: Map<string, number>; table: OddsTableRow[] } {
+  let tokenCount = 0;
+  const byCat = new Map<string, { k: number; n: number }>();
+  for (const p of snapshot.protocols) {
+    const cat = p.category ?? 'Other';
+    const cell = byCat.get(cat) ?? { k: 0, n: 0 };
+    cell.n += 1;
+    if (!isPreToken(p)) {
+      cell.k += 1;
+      tokenCount += 1;
+    }
+    byCat.set(cat, cell);
+  }
+  const overall = tokenCount / snapshot.protocols.length;
+  const byCategory = new Map<string, number>();
+  const table: OddsTableRow[] = [];
+  for (const [category, cell] of byCat) {
+    const smoothed = Math.round(((cell.k + 10 * overall) / (cell.n + 10)) * 1000) / 1000;
+    byCategory.set(category, smoothed);
+    table.push({ category, n: cell.n, token_share: Math.round((cell.k / cell.n) * 1000) / 1000, launch_odds: smoothed });
+  }
+  table.sort((a, b) => b.launch_odds - a.launch_odds || b.n - a.n || (a.category < b.category ? -1 : a.category > b.category ? 1 : 0));
+  return { overall: Math.round(overall * 1000) / 1000, byCategory, table };
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -374,15 +461,16 @@ export function scatterPoints(snapshot: Snapshot): ScatterPoint[] {
     .sort((a, b) => a.x - b.x || a.y - b.y);
 }
 
-/** The protocols the board ranks, strongest first, with ranks 1..n and distinct values. */
+/** The protocols the board ranks, strongest expected value first, with ranks 1..n and distinct values. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
+  const odds = launchOddsTable(snapshot);
   const rankable = snapshot.protocols.filter(isRankable);
   const scored = rankable.map((p) => {
-    const v = impliedValue(p, snapshot.as_of, model);
-    return { p, ...v };
+    const v = impliedValue(p, snapshot.as_of, model, odds.byCategory, odds.overall);
+    return { p, ...v, gas: gasTotalUsd(p) };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
-  // Force every implied value distinct: a $1 step down where rounding tied two rows.
+  // Force every expected value distinct: a $1 step down where rounding tied two rows.
   for (let i = 1; i < scored.length; i++) {
     if (scored[i]!.implied >= scored[i - 1]!.implied) scored[i]!.implied = Math.max(1, scored[i - 1]!.implied - 1);
   }
@@ -401,6 +489,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     token_status: 'pre-token',
     age_days: s.age,
     implied_value_usd: s.implied,
+    launch_value_usd: s.launch,
+    launch_odds: s.odds,
     model: {
       base_value_usd: s.base,
       category_multiplier: s.catMult,
@@ -408,8 +498,11 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
       growth_multiplier: round4(s.growthMult),
       maturity_multiplier: round4(s.maturityMult),
       age_days: s.age,
+      launch_value_usd: s.launch,
+      launch_odds: s.odds,
+      gas_total_usd: s.gas,
     },
-    farm_steps: farmSteps(s.p, s.age).map(stepText),
+    farm_steps: farmSteps(s.p, s.age, s.implied, s.odds, s.gas).map(stepText),
   }));
 }
 
@@ -450,6 +543,41 @@ function gasFor(chain: string): string {
   return 'about $2 of gas';
 }
 
+/** Gas for one transaction on a chain, in dollars: the same bands as gasFor, as a number. */
+function gasPerTx(chain: string): number {
+  const c = chain.toLowerCase();
+  if (c.includes('ethereum')) return 6;
+  if (c.includes('solana') || c.includes('base') || c.includes('arbitrum') || c.includes('optimism') || c.includes('polygon') || c.includes('bnb') || c.includes('avalanche')) return 0.5;
+  return 2;
+}
+
+/** How many transactions one farm runs: 2 to set up, 1 for the second action, 4 weekly actions, 1 to claim. */
+export const FARM_TX_COUNT = 8;
+
+/** Total gas for one farm, in dollars: 8 transactions at the chain's per-transaction gas. */
+export function gasTotalUsd(p: SnapshotProtocol): number {
+  return Math.round(FARM_TX_COUNT * gasPerTx(chainOf(p)) * 100) / 100;
+}
+
+/** The costed net verdict for one farm: total gas and capital at risk against the expected launch value at the category's launch odds. */
+export function netVerdict(p: SnapshotProtocol, age: number | null, expectedValue: number, odds: number, gasTotal: number): string {
+  const chain = chainOf(p);
+  const capital = capitalFor(p);
+  const hold = holdDaysFor(age);
+  const pct = Math.round(odds * 100);
+  let call: string;
+  if (odds < 0.3) {
+    call = `Long shot: only about ${pct}% of protocols in this category ever launched a token, so a launch here would surprise the record.`;
+  } else if (gasTotal >= 40) {
+    call = `Dear on ${chain}: the gas alone runs to about $${gasTotal}, so only farm if the ticket is worth that to you.`;
+  } else if (odds >= 0.6) {
+    call = `Cheap ticket: about $${gasTotal} of gas for an expected launch value of $${expectedValue.toLocaleString('en-US')} at ${pct}% launch odds.`;
+  } else {
+    call = `A middle ticket: about $${gasTotal} of gas for an expected launch value of $${expectedValue.toLocaleString('en-US')} at ${pct}% launch odds.`;
+  }
+  return `${call} Total gas about $${gasTotal} across ${FARM_TX_COUNT} transactions on ${chain}; $${capital} of capital at risk for ${hold} days. Your share of any launch is unknown, so treat this as a lottery ticket, not an investment, and only spend gas you can lose.`;
+}
+
 /** The category's main action, in the words a farmer can follow. */
 function actionFor(p: SnapshotProtocol, capital: number, chain: string): string {
   const c = (p.category ?? '').toLowerCase();
@@ -486,17 +614,17 @@ function secondActionFor(p: SnapshotProtocol, capital: number, chain: string): s
 }
 
 /**
- * A protocol's farm plan: seven steps, each an action with a cost and a time.
+ * A protocol's farm plan: eight steps, each an action with a cost and a time.
  * Derived from the protocol's own record (category, chains, TVL, age), never
  * from a hand-written list of names. It records no token: nothing here
- * promises an airdrop or a token.
+ * promises an airdrop or a token. The eighth step is the costed net verdict.
  */
-export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
+export function farmSteps(p: SnapshotProtocol, age: number | null, expectedValue?: number, odds?: number, gasTotal?: number): FarmStep[] {
   const chain = chainOf(p);
   const capital = capitalFor(p);
   const hold = holdDaysFor(age);
   const gas = gasFor(chain);
-  return [
+  const steps: FarmStep[] = [
     {
       text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`,
       cost: 'under $3 of gas for the first transaction',
@@ -533,6 +661,14 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       time: '5 minutes',
     },
   ];
+  if (expectedValue !== undefined && odds !== undefined && gasTotal !== undefined) {
+    steps.push({
+      text: netVerdict(p, age, expectedValue, odds, gasTotal),
+      cost: `about $${gasTotal} of gas in all`,
+      time: `${hold} days`,
+    });
+  }
+  return steps;
 }
 
 /** The live-token protocols, by market cap, for the dashboard's Live token view. */
@@ -566,6 +702,9 @@ export function radarRow(row: BoardRow): RadarRow {
     listed_at: row.listed_at,
     age_days: row.age_days,
     implied_value_usd: row.implied_value_usd,
+    launch_value_usd: row.launch_value_usd,
+    launch_odds: row.launch_odds,
+    gas_total_usd: row.model.gas_total_usd,
     base_value_usd: row.model.base_value_usd,
     category_multiplier: row.model.category_multiplier,
     growth_multiplier: row.model.growth_multiplier,
@@ -578,12 +717,15 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const board = buildBoard(snapshot, model);
   const live = liveRows(snapshot);
   const excluded = excludedRows(snapshot);
+  const odds = launchOddsTable(snapshot);
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
     floor_usd: snapshot.floor_usd,
     model,
     model_version: MODEL_VERSION,
+    validation: VALIDATION,
+    odds_table: odds.table.filter((r) => r.n >= 8),
     watchlist_size: snapshot.watchlist.length,
     watchlist: [...snapshot.watchlist],
     board_size: board.length,

@@ -1,4 +1,4 @@
-// Token Radar v2 dashboard (radar-3 model). Reads window.RADAR (written beside
+// Token Radar v3 dashboard (radar-4 model). Reads window.RADAR (written beside
 // dashboard/ by main.ts) and renders the ranked board, filters, a per-protocol
 // detail view with the model's own breakdown, and the farm plan. No network:
 // every byte it shows is in data.js. No protocol name is special-cased.
@@ -29,9 +29,19 @@
     return Math.max(0, Math.round(days)) + 'd';
   }
   // The model, as in lib/model.ts: log-log comps fit, category multiplier,
-  // modest growth, capped maturity. The page shows the breakdown data.js
-  // carries, so page and board.json are the same arithmetic.
+  // modest growth, capped maturity, then launch odds: the page shows the
+  // breakdown data.js carries, so page and board.json are the same
+  // arithmetic. Expected value = launch value x launch odds.
   function impliedOf(row, model) {
+    var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
+    var growthMult = 1 + (growth / 100) * model.growth_weight;
+    var maturity = 1;
+    if (row.age_days !== null && row.age_days !== undefined) maturity = row.age_days < 365 ? 1.2 : row.age_days < 730 ? 1.1 : 0.85;
+    var base = Math.exp(model.log_intercept) * Math.pow(Math.max(1, row.tvl_usd), model.log_tvl_exponent);
+    var launch = Math.max(1, Math.min(model.implied_cap_usd, Math.round(base * row.category_multiplier * growthMult * maturity)));
+    return Math.max(1, Math.round(launch * row.launch_odds));
+  }
+  function launchOf(row, model) {
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
     var growthMult = 1 + (growth / 100) * model.growth_weight;
     var maturity = 1;
@@ -119,11 +129,31 @@
     if (s.length < 20) s = s + " Hold the position and check the protocol's own page.";
     return s;
   }
+  function gasPerTx(chain) {
+    var c = (chain || '').toLowerCase();
+    if (c.indexOf('ethereum') >= 0) return 6;
+    if (c.indexOf('solana') >= 0 || c.indexOf('base') >= 0 || c.indexOf('arbitrum') >= 0 || c.indexOf('optimism') >= 0 || c.indexOf('polygon') >= 0 || c.indexOf('bnb') >= 0 || c.indexOf('avalanche') >= 0) return 0.5;
+    return 2;
+  }
+  function gasTotalUsd(p) { return Math.round(8 * gasPerTx(chainOf(p)) * 100) / 100; }
+  function netVerdict(p, expectedValue, odds, gasTotal) {
+    var chain = chainOf(p);
+    var capital = capitalFor(p);
+    var hold = holdDaysFor(p.age_days);
+    var pct = Math.round(odds * 100);
+    var call;
+    if (odds < 0.3) call = 'Long shot: only about ' + pct + '% of protocols in this category ever launched a token, so a launch here would surprise the record.';
+    else if (gasTotal >= 40) call = 'Dear on ' + chain + ': the gas alone runs to about $' + gasTotal + ', so only farm if the ticket is worth that to you.';
+    else if (odds >= 0.6) call = 'Cheap ticket: about $' + gasTotal + ' of gas for an expected launch value of $' + expectedValue.toLocaleString('en-US') + ' at ' + pct + '% launch odds.';
+    else call = 'A middle ticket: about $' + gasTotal + ' of gas for an expected launch value of $' + expectedValue.toLocaleString('en-US') + ' at ' + pct + '% launch odds.';
+    return call + ' Total gas about $' + gasTotal + ' across 8 transactions on ' + chain + '; $' + capital + ' of capital at risk for ' + hold + ' days. Your share of any launch is unknown, so treat this as a lottery ticket, not an investment, and only spend gas you can lose.';
+  }
   function farmSteps(p) {
     var chain = chainOf(p);
     var capital = capitalFor(p);
     var hold = holdDaysFor(p.age_days);
     var gas = gasFor(chain);
+    var gasTotal = gasTotalUsd(p);
     return [
       { text: 'Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.', cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
       { text: actionFor(p, capital, chain), cost: '$' + capital + ' of capital and ' + gas, time: '15 minutes to set up' },
@@ -131,7 +161,8 @@
       { text: 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.', cost: 'about $2 of gas a week', time: '10 minutes a week' },
       { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot.', cost: 'the $' + capital + ' stays in the position', time: hold + ' days' },
       { text: "Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.", cost: 'no fee to check, and never pay to claim', time: '10 minutes' },
-      { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.', cost: 'nothing but the log', time: '5 minutes' }
+      { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.', cost: 'nothing but the log', time: '5 minutes' },
+      { text: netVerdict(p, p.implied_value_usd, p.launch_odds, gasTotal), cost: 'about $' + gasTotal + ' of gas in all', time: hold + ' days' }
     ].map(stepText);
   }
 
@@ -178,6 +209,7 @@
       else if (key === 'tvl') { av = a.tvl_usd; bv = b.tvl_usd; }
       else if (key === 'growth') { av = a.change_7d === null ? -Infinity : a.change_7d; bv = b.change_7d === null ? -Infinity : b.change_7d; }
       else if (key === 'age') { av = a.age_days === null ? Infinity : a.age_days; bv = b.age_days === null ? Infinity : b.age_days; }
+      else if (key === 'odds') { av = a.launch_odds; bv = b.launch_odds; }
       else if (key === 'base') { av = a.base_value_usd; bv = b.base_value_usd; }
       else { av = a.implied_value_usd; bv = b.implied_value_usd; }
       if (av < bv) return -state.dir;
@@ -201,12 +233,12 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: 'Pre-token protocols, ranked by what a launch would be worth' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. This board ranks all ' + DATA.board_size + ' rankable pre-token protocols, watchlist and below the floor alike. ' + DATA.excluded_size + ' pre-token protocols are excluded from the ranking by the watchlist rule itself, because they are bridged, wrapped or staked products of a token that already trades, and they are listed separately with the reason each one was set aside. Implied value is a model, not a price and not a promise of a token.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. This board ranks all ' + DATA.board_size + ' rankable pre-token protocols, watchlist and below the floor alike. ' + DATA.excluded_size + ' pre-token protocols are excluded from the ranking by the watchlist rule itself, because they are bridged, wrapped or staked products of a token that already trades, and they are listed separately with the reason each one was set aside. Rank is by expected value: launch value x launch odds, where the odds are the share of protocols in the category that ever launched a token. Expected value is a model, not a price and not a promise of a token.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
         el('div', { class: 'fact' }, el('span', { text: 'Pre-token rows scored' }), el('b', { text: String(DATA.board_size) })),
-        el('div', { class: 'fact' }, el('span', { text: 'Rank 1 implied value' }), el('b', { text: fmtUsd(DATA.rows[0].implied_value_usd) })),
+        el('div', { class: 'fact' }, el('span', { text: 'Rank 1 expected value' }), el('b', { text: fmtUsd(DATA.rows[0].implied_value_usd) })),
         el('div', { class: 'fact' }, el('span', { text: 'Excluded: wrapped / bridged / staked' }), el('b', { text: String(DATA.excluded_size) })),
         el('div', { class: 'fact' }, el('span', { text: 'Live-token protocols set aside' }), el('b', { text: String(DATA.live_size) }))
       )
@@ -279,9 +311,10 @@
         el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
         el('td', { class: 'num ' + growthClass, text: growth }),
         el('td', { class: 'num', text: fmtAge(r.age_days) }),
+        el('td', { class: 'num ' + (r.launch_odds < 0.3 ? 'neg' : r.launch_odds >= 0.6 ? 'pos' : ''), text: Math.round(r.launch_odds * 100) + '%' }),
         el('td', null, el('div', { class: 'implied' },
           el('div', { class: 'bar', 'aria-hidden': 'true' }, el('i', { style: 'width:' + Math.max(3, Math.round((r.implied_value_usd / max) * 100)) + '%' })),
-          el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) })
+          el('div', { class: 'name' }, el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) }), el('span', { class: 'sub', text: 'launch ' + fmtUsd(r.launch_value_usd) }))
         )),
         el('td', null, el('span', { class: 'status', text: 'records no token' }))
       );
@@ -290,14 +323,15 @@
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { class: 'sub', text: 'Pre-token protocols, strongest implied value first. Select a row for its model breakdown and farm plan.' }),
+          el('caption', { class: 'sub', text: 'Pre-token protocols, strongest expected value first. Select a row for its model breakdown and farm plan.' }),
           el('thead', null, el('tr', null,
             sortHeader('implied', 'Rank'),
             sortHeader('name', 'Protocol'),
             sortHeader('tvl', 'TVL'),
             sortHeader('growth', '7d'),
             sortHeader('age', 'Age'),
-            sortHeader('implied', 'Implied value'),
+            sortHeader('odds', 'Launch odds'),
+            sortHeader('implied', 'Expected value'),
             el('th', { scope: 'col', text: 'Token' })
           )),
           tbody
@@ -363,6 +397,15 @@
     return s;
   }
 
+  function validationStrip() {
+    var v = DATA.validation;
+    var alts = (v.alternatives || []).map(function (a) { return a.name + ' x' + a.multiple.toFixed(2); }).join(', ');
+    return el('section', { class: 'panel valid' },
+      el('h2', { text: 'Held out, not in-sample' }),
+      el('p', { class: 'sub', text: 'Leave-one-out median error x' + v.loo_multiple.toFixed(2) + ' (median absolute log error ' + v.loo_median_abs_log_error + '), 5-fold x' + v.fivefold_multiple.toFixed(2) + ' on ' + v.n_traded + ' traded protocols. Fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + ': the slope is stable, the intercept moves with it. Bootstrap 90% band on the fit itself: x' + v.bootstrap_band_multiple.toFixed(2) + ' at median TVL. No alternative beat the log-log fit held out: ' + alts + '. Launch odds by category run 21% (Risk Curators) to 76% (Lending).' })
+    );
+  }
+
   function fitPanel() {
     var cal = (DATA.calibration || []).filter(function (c) { return c.n >= 4; });
     var tbody = el('tbody');
@@ -375,21 +418,24 @@
         el('td', { text: c.used_on_board ? 'Used' : 'Calibration only' })
       ));
     });
-    return el('section', { class: 'panel fit' },
-      el('div', { class: 'fit-chart' },
-        el('h2', { text: 'The fit, not just the formula' }),
-        el('div', { html: scatterSvg() }),
-        el('p', { class: 'sub', text: 'Each dot is one of the 128 traded protocols in this snapshot. The line is log(mcap) = 6.965 + 0.522 x log(TVL), residual SD 2.08 log units: the dots spread wide around it, so every implied value is an order-of-magnitude estimate.' })
-      ),
-      el('div', { class: 'fit-table' },
-        el('h2', { text: 'Calibration by category' }),
-        el('div', { class: 'table-wrap' },
-          el('table', null,
-            el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Category' }), el('th', { scope: 'col', text: 'n' }), el('th', { scope: 'col', text: 'Median mcap/TVL' }), el('th', { scope: 'col', text: 'Fitted x' }), el('th', { scope: 'col', text: 'Board use' }))),
-            tbody
-          )
+    return el('details', { class: 'panel fit-details' },
+      el('summary', { class: 'fit-summary', text: 'The fit, not just the formula: scatter and calibration table (click to open)' }),
+      el('div', { class: 'fit' },
+        el('div', { class: 'fit-chart' },
+          el('h2', { text: 'The fit, not just the formula' }),
+          el('div', { html: scatterSvg() }),
+          el('p', { class: 'sub', text: 'Each dot is one of the 128 traded protocols in this snapshot. The line is log(mcap) = 6.965 + 0.522 x log(TVL), residual SD 2.08 log units: the dots spread wide around it, so every implied value is an order-of-magnitude estimate.' })
         ),
-        el('p', { class: 'sub', text: 'Fitted multiplier is exp(mean log residual) where n >= 4 traded comps exist; other categories score 1.0. Bridge, Canonical Bridge and Liquid Staking are calibration only: those categories are excluded from the board, so their multipliers are never applied to a ranked row.' })
+        el('div', { class: 'fit-table' },
+          el('h2', { text: 'Calibration by category' }),
+          el('div', { class: 'table-wrap' },
+            el('table', null,
+              el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Category' }), el('th', { scope: 'col', text: 'n' }), el('th', { scope: 'col', text: 'Median mcap/TVL' }), el('th', { scope: 'col', text: 'Fitted x' }), el('th', { scope: 'col', text: 'Board use' }))),
+              tbody
+            )
+          ),
+          el('p', { class: 'sub', text: 'Fitted multiplier is exp(mean log residual) where n >= 4 traded comps exist; other categories score 1.0. Bridge, Canonical Bridge and Liquid Staking are calibration only: those categories are excluded from the board, so their multipliers are never applied to a ranked row.' })
+        )
       )
     );
   }
@@ -423,13 +469,15 @@
 
   function modelPanel() {
     var m = DATA.model;
+    var v = DATA.validation;
+    var odds = (DATA.odds_table || []).slice(0, 6).map(function (o) { return o.category + ' ' + Math.round(o.launch_odds * 100) + '% (n=' + o.n + ')'; }).join(', ');
     return el('section', { class: 'panel model' },
-      el('h2', { text: 'How implied value is computed' }),
+      el('h2', { text: 'How expected value is computed' }),
       el('p', { class: 'sub', text: 'One function scores every row, from the snapshot figures only. No protocol name is special-cased.' }),
       el('div', { class: 'formula' },
-        'implied = round( exp(' + m.log_intercept + ') x TVL ^ ' + m.log_tvl_exponent + ' x category x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x maturity )'
+        'expected = launch x odds; launch = round( exp(' + m.log_intercept + ') x TVL ^ ' + m.log_tvl_exponent + ' x category x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x maturity )'
       ),
-      el('p', { class: 'sub', text: 'Fitted on the 128 traded protocols in this snapshot: log(mcap) = ' + m.log_intercept + ' + ' + m.log_tvl_exponent + ' x log(TVL), residual SD ' + m.residual_sd_log + ' log units. That dispersion is the honest limit: a single implied value is uncertain by roughly a factor of 8 either way. Category multipliers are exp(mean log residual) where n >= 4 traded comps exist (Basis Trading 2.99, Canonical Bridge 2.11, RWA 1.21, Dexs 1.14, Lending 0.57, Yield 0.49, Liquid Staking 0.38, Yield Aggregator 0.34); other categories score 1.0. Canonical Bridge, Bridge and Liquid Staking multipliers are calibration only: those categories are excluded from the board. Growth barely predicts the residual (corr -0.14), so its weight is 0.30. Maturity is capped at 1.20 for protocols under a year, 1.10 for 1-2 years, 0.85 older. Median mcap/TVL falls from 0.42 at TVL $5-50M to 0.013 above $10B, which is why the fit is log-log, not linear in TVL. The board applies the watchlist exclusion to every row: no bridged, wrapped, staked or exchange product is ranked, whatever its TVL.' })
+      el('p', { class: 'sub', text: 'Fitted on the 128 traded protocols in this snapshot: log(mcap) = ' + m.log_intercept + ' + ' + m.log_tvl_exponent + ' x log(TVL), residual SD ' + m.residual_sd_log + ' log units. Held out, the fit is no tighter: leave-one-out median error x' + v.loo_multiple.toFixed(2) + ', 5-fold x' + v.fivefold_multiple.toFixed(2) + ', fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + '. That dispersion is the honest limit: a single expected value is uncertain by roughly a factor of 3-4 either way. Category multipliers are exp(mean log residual) where n >= 4 traded comps exist (Basis Trading 2.99, Canonical Bridge 2.11, RWA 1.21, Dexs 1.14, Lending 0.57, Yield 0.49, Liquid Staking 0.38, Yield Aggregator 0.34); other categories score 1.0. Canonical Bridge, Bridge and Liquid Staking multipliers are calibration only: those categories are excluded from the board. Growth barely predicts the residual (corr -0.14), so its weight is 0.30. Maturity is capped at 1.20 for protocols under a year, 1.10 for 1-2 years, 0.85 older. Median mcap/TVL falls from 0.42 at TVL $5-50M to 0.013 above $10B, which is why the fit is log-log, not linear in TVL. Launch odds are the category token share in this snapshot, smoothed toward the overall 54.9% with alpha 10: highest ' + odds + '. Age is not used for odds: the token share rises with age because it is cumulative, and a protocol that has had years to launch and still has not is a worse forward bet, not a better one. The board applies the watchlist exclusion to every row: no bridged, wrapped, staked or exchange product is ranked, whatever its TVL. Each farm plan ends with a costed net verdict: total gas across 8 transactions against the expected launch value, with the warning that your share of any launch is unknown.' })
     );
   }
 
@@ -461,9 +509,11 @@
         el('div', null, el('span', { text: 'Category factor (' + (row.category || 'none') + ')' }), el('b', { class: 'num', text: 'x' + row.category_multiplier })),
         el('div', null, el('span', { text: 'Growth factor (' + fmtPct(row.change_7d) + ')' }), el('b', { class: 'num', text: 'x' + row.growth_multiplier })),
         el('div', null, el('span', { text: 'Maturity factor (' + fmtAge(row.age_days) + ')' }), el('b', { class: 'num', text: 'x' + row.maturity_multiplier })),
-        el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
+        el('div', null, el('span', { text: 'Launch value (if it launches)' }), el('b', { class: 'num', text: fmtUsd(row.launch_value_usd) })),
+        el('div', null, el('span', { text: 'Launch odds (' + (row.category || 'none') + ' token share)' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '%' })),
+        el('div', null, el('span', { text: 'Expected value = launch x odds' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
-      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (diff <= 1 ? ', the same number board.json carries (a $1 tie-break at most).' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price, and it records no token.' })
+      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (diff <= 1 ? ', the same number board.json carries (a $1 tie-break at most).' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price, and it records no token. Launch odds are the smoothed token share of this category in the snapshot; your share of any launch is unknown.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm plan' }),
@@ -486,6 +536,7 @@
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
     shell.appendChild(lede());
+    if (state.tab === 'pre-token') shell.appendChild(validationStrip());
     if (state.tab === 'pre-token') shell.appendChild(fitPanel());
     shell.appendChild(controls());
     if (state.tab === 'pre-token') shell.appendChild(boardTable());

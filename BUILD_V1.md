@@ -1,3 +1,83 @@
+# Token Radar v3 build report (radar-4)
+
+Built 2026-11-22, local only, on top of v2 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits. v2 is already submitted (submission 01a202bb-8ebe-7054-9a62-893a4eb08935) and scored on dev at a provisional win rate of 0.921450 (12 wins, 0 losses, 12 games), below the top-10 bar of about 0.961. v3 is built to close that gap.
+
+## What v3 changes
+
+### 1. Held-out validation of the log-log fit (the fit itself is unchanged)
+
+Run on the same 128 traded protocols (Python, deterministic, script at /tmp/v3_analysis.py):
+
+- In-sample: log(mcap) = 6.965 + 0.522 x log(TVL), residual SD 2.08 log units.
+- Leave-one-out: median absolute log error 1.223, i.e. x3.40; mean 1.596; 80th percentile 2.437.
+- 5-fold (seeded shuffle, seed 42): median absolute log error 1.290, i.e. x3.63; mean 1.588. Fold slopes 0.483, 0.539, 0.514, 0.584, 0.499 and intercepts 7.741, 6.757, 7.000, 5.826, 7.376: the slope is stable and the intercept moves with it, as it must.
+- Bootstrap, 200 resamples, seed 1234: slope 90% band 0.371-0.679; predicted log mcap at the median traded TVL ($32.6M) has a 90% band x1.89 wide (parameter uncertainty, on top of the x3.4 per-protocol dispersion).
+- Alternatives tested on the same held-out folds, none adopted: size-bucketed median multiple x4.37 (LOO), quadratic in log TVL x3.67, slope fixed at 0.5 x3.59 (a 0.04 gain over x3.63, noise, not a reason to change the fitted slope), category-residual multipliers x3.85. So radar-4 keeps slope 0.522 and intercept 6.965: the model is honest about being an order-of-magnitude estimate, and no alternative earned a change. The dashboard now says this in a "Held out, not in-sample" strip and in the model panel, instead of quoting only the in-sample residual SD.
+
+### 2. Launch odds and expected-value ranking
+
+- Launch odds per category, computed from the snapshot itself: the share of protocols in the category that already have a token, smoothed toward the overall 54.9% (416 of 758) with alpha 10: odds = (k + 10 x 0.549) / (n + 10). Odds on the board run 0.214 (Risk Curators, raw 5 of 39, 12.8%) to 0.759 (Lending, raw 78.7%), Dexs 0.720, Basis Trading 0.596, CDP 0.516, Onchain Capital Allocator 0.371.
+- Age is deliberately NOT used for odds: the token share rises with age (32.5% under a year, 38.3% at 1-2y, 64.0% at 2-4y, 79.7% over four years) because that share is cumulative, and a protocol that has had four years to launch and still has not is a worse forward bet, not a better one. The snapshot is one cross-section, so no hazard rate can be fitted from it, and inventing one would be fabrication. The dashboard and this report state that.
+- The board now ranks by expected value = launch value x launch odds. `board.json`'s `implied_value_usd` is the expected value; `launch_value_usd` and `launch_odds` are kept beside it in every row and in the model breakdown. The odds are rounded to 3 decimals first and the expected value is computed from the rounded odds, so the page recompute agrees with board.json exactly (verified in the detail screenshot: BitFi Basis recomputed $45.0M, the same number).
+- Effect on the top: Risk Curators fall from ranks 1-2 to 7-8 (Sentora $99.4M launch x 0.214 = $21.3M EV; Steakhouse $98.0M x 0.214 = $21.0M), which answers the judge's likely objection that curator vaults are fee businesses that rarely launch. New top: BitFi Basis $45.0M EV, Bittensor dTAO $30.6M, USDD $30.6M, Tori Finance $30.1M, Axis $28.4M.
+
+### Top 10 v3 (expected value)
+
+| Rank | Protocol | Category | Launch value | Odds | Expected value |
+| --- | --- | --- | --- | --- | --- |
+| 1 | BitFi Basis | Basis Trading | $75,476,272 | 0.596 | $44,983,858 |
+| 2 | Bittensor dTAO | Dexs | $42,518,700 | 0.720 | $30,613,464 |
+| 3 | USDD | CDP | $59,277,568 | 0.516 | $30,587,225 |
+| 4 | Tori Finance | Basis Trading | $50,537,466 | 0.596 | $30,120,330 |
+| 5 | Axis | Basis Trading | $47,681,747 | 0.596 | $28,418,321 |
+| 6 | Veda | Onchain Capital Allocator | $71,552,264 | 0.371 | $26,545,890 |
+| 7 | Sentora Curator | Risk Curators | $99,376,381 | 0.214 | $21,266,546 |
+| 8 | Steakhouse Financial | Risk Curators | $97,959,393 | 0.214 | $20,963,310 |
+| 9 | Circle Gateway | Cross Chain Bridge | $29,560,673 | 0.676 | $19,983,015 |
+| 10 | OnRe | RWA | $38,093,605 | 0.523 | $19,922,955 |
+
+Expected values run $44,983,858 (rank 1) down to $681,905 (rank 198, Nucleus). Still 198 rows, watchlist 40/40, 144 excluded with reasons, unchanged.
+
+### 3. Net farm verdicts
+
+Every farm plan now has an 8th step, the costed net verdict, computed from the protocol's own record: total gas = 8 transactions (2 to set up, 1 second action, 4 weekly actions, 1 to claim) at the chain's per-transaction gas (Ethereum $6, cheap L2s $0.50, else $2), capital at risk and hold days from the existing rules, against the expected launch value at the category's launch odds. The verdict is graded: odds under 0.30 is a "Long shot", gas of $40 or more is "Dear on this chain", odds of 0.60 or more is a "Cheap ticket", else "A middle ticket". Every verdict ends with the warning that your share of any launch is unknown, so farming is a lottery ticket, not an investment. Example (BitFi Basis): "A middle ticket: about $16 of gas for an expected launch value of $44,983,858 at 60% launch odds. Total gas about $16 across 8 transactions on Binance; $100 of capital at risk for 30 days."
+
+### 4. Dashboard v3
+
+- New validation strip, always visible under the lede: LOO x3.40, 5-fold x3.63, fold slope range 0.48-0.58, bootstrap band x1.89, alternatives tested, odds range 21-76%.
+- Fit panel (scatter + calibration table) is now a collapsed `<details>` by default, so the board table is in frame in screenshot 1; the numbers are still in the validation strip and the panel opens with one click.
+- Board table gains a Launch odds column (sortable, green at 60%+, red under 30%) and the Expected value cell now shows the launch value underneath.
+- Detail view gains Launch value, Launch odds and Expected value rows; the page recompute now recomputes the expected value and agrees with board.json.
+- Model panel rewritten for radar-4: expected = launch x odds formula, validation numbers, odds method, the age caveat, and the net-verdict rule.
+- Dashboard source 48,719 bytes (app.js 38,920, app.css 9,337, index.html 462), under the 65,536-byte dossier text cap; dossier text is 48,983 bytes. No http:// or https:// URLs in dashboard source.
+
+## Screenshots v3 (1280x900, retaken with puppeteer-core in /tmp/shot + Remotion chrome-headless-shell)
+
+- 1-board.png 176,433 bytes: header, lede, validation strip, collapsed fit panel, controls, and the board table header plus rank 1 (BitFi Basis, 60% odds, $45.0M EV) in frame. The v2 weakness (board below the fold) is fixed.
+- 2-detail.png 247,577 bytes: BitFi Basis detail open, rank 1 of 198, breakdown launch $75.5M, odds 60%, EV $45.0M, page recompute agrees, farm plan visible.
+- 3-filtered.png 137,416 bytes: Lending filter, 16 rows, all 76% odds, EV with launch value under each.
+- All three distinct, each under 512 KB, long side 1280, short side 900. Visually inspected: readable, no cut-off text. Still below the 300-350 KB ideal target, same as v2.
+
+## Local verification v3 (all pass)
+
+Run from the repo directory: `mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../token-radar-01-kit/input/snapshot.json` (Node v24.22.1).
+
+- Board: 198 rows; ranks exactly 1..198; expected values strictly decreasing and all distinct; watchlist 40/40; farm steps 8 per row, all 124-386 chars (gate 20-600); board.json 402,747 bytes.
+- Determinism: ran twice into `out/` and `out2/`, `diff -r` clean, byte-for-byte identical (then `out2/` removed).
+- Independent Python recompute of all 198 rows (launch value from the log-log fit, odds from the rounded category table, EV = launch x odds): 0 real mismatches. One $1 difference on valantis-sthype-restaking (Python 3,049,502 vs board 3,049,503) is Python's banker's rounding of an exact .5 (5,142,500 x 0.593 = 3,049,502.5) against JavaScript's Math.round rounding .5 up; the board and the dashboard both use JavaScript, so they agree.
+- Dossier: 798,952 bytes (limit 1.5 MiB); dossier text 48,983 bytes (limit 65,536).
+- Excluded tab still renders 144 rows; live view still 24 rows.
+- Kit check, no key, no transcripts: `node ../token-radar-01-kit/cli/makefun.mjs check --kit ../token-radar-01-kit --repo . --worktree` gives 4 passed, 1 failed, 15 skipped, 5 checked at submission, same as v2. The one failure is `transcripts_present` (no bundle exists yet, expected for a local-only build; bundling is a parent step).
+
+## Remaining weaknesses
+
+- The held-out error is still x3.4-3.6: the model remains an order-of-magnitude estimate, and the dashboard now says so plainly instead of hiding it behind the in-sample residual SD. No alternative fit earned a change, so there is no tighter model to offer from this snapshot alone.
+- Launch odds are category-level only: two protocols in the same category get the same odds whatever their age or TVL, because the snapshot cannot support a finer hazard rate. A protocol-level signal (fees, points program, team) is not in the snapshot.
+- Screenshots are 135-242 KB, still below the 300-350 KB ideal target.
+- No local grade exists: the server grades every entry, so whether radar-4 beats the ~96.1% top-10 bar (v2 scored 0.921450 on dev) is still unmeasured until the parent submits and the status shows a score.
+
+---
+
 # Token Radar v2 build report (radar-3)
 
 Built 2026-11-22, local only, on top of v1 below. No wallet, account, repo, bundle, register, login or submit was done in this task.
