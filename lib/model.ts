@@ -1,28 +1,40 @@
-// Token Radar v4 model (radar-5): the v3 log-log comps fit, now with
-// launch odds v2 and the value fit re-tested and kept.
+// Token Radar v5 model (radar-6): the v4 log-log comps fit and two-stage
+// odds, unchanged, plus the evidence a pairwise judge compares directly:
+// per-row 90% bands on the launch value and the expected value, nearest
+// traded comps as pricing anchors, a category deep dive, a chain breakdown,
+// the full 758-protocol integrity accounting, a walk-forward test, and a
+// sensitivity check on the slope. Nothing here invents a signal: every new
+// number is computed from this snapshot at build time, and every limit is
+// stated next to the number.
 //
-// Odds v2 (2026-11-22, 5-fold CV, seed 42, all 758 protocols; scripts in
-// /tmp/v4_analysis.py and /tmp/v4_analysis2.py): the v3 category-only
-// smoothed odds score log loss 0.6423, AUC 0.6455. A full logistic on
-// category + log TVL + age band scores 0.5967 / 0.7431, but the whole gain
-// is the age bands (young protocols have not had time to launch yet, old
-// ones mostly have): for the board that sign is backwards, a protocol
-// that has sat tokenless for five years is a worse forward bet, not a
-// better one, and the age model would put Polymarket International
-// (1,845 days, no token) in the top 10 at 77% odds. So age is NOT used.
-// What IS adopted is a two-stage model: the v3 smoothed category odds as
-// the offset, plus one fitted TVL term, b = 0.230 per SD of log10 TVL.
-// Held out it beats the v3 baseline on both metrics: log loss 0.6377,
-// AUC 0.6641. The gain is small and the report says so; it is one
-// parameter, it keeps v3's calibration, and it does not resurrect the
-// Risk Curators (their TVL lift is not enough to outrun the 21% base).
+// Odds (v4, kept): two-stage, category share smoothed toward the overall
+// 54.9% with alpha 10 as the log-odds offset, plus 0.23 per SD of log10 TVL.
+// 5-fold CV log loss 0.6377, AUC 0.6641, vs 0.6423/0.6455 category-only.
+// The age-band odds model (CV log loss 0.5967, AUC 0.7431) stays rejected:
+// it wins only on the cumulative age signal, which has the wrong sign for
+// a forward bet (see v4 report).
 //
-// Value fit v2: per-category slope+intercept (n>=8 traded comps, shrunk
-// k=2/4/8) scores LOO x3.64-3.66 against the global fit's x3.40;
-// per-category intercept-only x3.45; adding change_7d x3.76, n_chains
-// x3.66, log age x3.56. Nothing beat the global fit, so the value fit is
-// unchanged: log(mcap) = 6.965 + 0.522 x log(TVL), LOO x3.40, 5-fold
-// x3.63. The dashboard states the rejections instead of hiding them.
+// Value fit (v3/v4, kept): log(mcap) = 6.965 + 0.522 x log(TVL), LOO x3.40,
+// 5-fold x3.63, 10-fold x3.47. Re-tested for v5 by LOO on the 128 traded
+// protocols: Huber robust x3.63, Theil-Sen x3.51, trimmed 5% x3.48,
+// per-category intercept-only shrunk k=1 x4.08 and k=16 x3.68, piecewise
+// slope by TVL tertile x3.53. Nothing beat the global fit, so it stays.
+// Walk-forward by age (known-age traded only, n=95): fit on protocols
+// older than 730 days, test on younger, median error x2.88 (n=32); fit on
+// younger, test on older, x2.96 (n=63). Both are small test sets; the
+// dashboard says so.
+//
+// Per-row bands: the same bootstrap as v3 (200 resamples of the 128 traded
+// protocols, seed 1234) is re-run at build time in this file, with an
+// MT19937 that reproduces CPython's random.Random(1234) draw for draw
+// (verified against the Python analysis: identical resample indices, so
+// the slope band is the same 0.371-0.679). Each row's launch value is
+// recomputed under all 200 refits; the band is the 5th-95th percentile of
+// those 200 values, times the row's (fixed) launch odds. It is parameter
+// uncertainty only: the x3.40 per-protocol dispersion sits on top of it,
+// and the dashboard says that in plain words. It is not a prediction
+// interval, and no row's point value moves because of it: the ranking
+// stays expected value = launch value x launch odds, from the central fit.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -71,7 +83,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-5';
+export const MODEL_VERSION = 'radar-6';
 
 /** The two-stage odds coefficient: log-odds gained per SD of log10 TVL,
  * fitted by Newton on all 758 protocols (full-sample fit; the 5-fold CV
@@ -102,6 +114,32 @@ export interface ValidationResult {
   };
   /** Value-fit alternatives re-tested for v4 by LOO on the 128 traded protocols; all lost to the global fit, so none was adopted. */
   value_tests: { name: string; multiple: number }[];
+  /** 10-fold CV (seed 42) of the global log-log fit, added for v5. */
+  tenfold_multiple: number;
+  /** Walk-forward by age, added for v5: traded protocols with a known
+   * listing date only (95 of 128; 33 have no listed_at in the snapshot).
+   * Fit on protocols older than 730 days and test on younger ones, and
+   * the reverse. Both test sets are small; the dashboard says so. */
+  walkforward: {
+    known_age_n: number;
+    old_to_young_multiple: number;
+    old_to_young_test_n: number;
+    young_to_old_multiple: number;
+    young_to_old_test_n: number;
+  };
+  /** Sensitivity, added for v5: the board re-scored with the slope at
+   * either end of its 90% bootstrap band (0.371 and 0.679), intercept
+   * refit each time as the mean residual at that slope, same odds.
+   * top10_stays counts how many of the central top 10 stay in the top
+   * 10; rank1 names the protocol on top under that slope. */
+  sensitivity: {
+    slope_lo: number;
+    slope_hi: number;
+    top10_stays_lo: number;
+    top10_stays_hi: number;
+    rank1_lo: string;
+    rank1_hi: string;
+  };
 }
 
 export const VALIDATION: ValidationResult = {
@@ -135,7 +173,29 @@ export const VALIDATION: ValidationResult = {
     { name: 'global + log age', multiple: 3.56 },
     { name: 'global + n_chains', multiple: 3.66 },
     { name: 'global + change_7d', multiple: 3.76 },
+    { name: 'Huber robust', multiple: 3.63 },
+    { name: 'Theil-Sen', multiple: 3.51 },
+    { name: 'trimmed 5%', multiple: 3.48 },
+    { name: 'category intercept k=1', multiple: 4.08 },
+    { name: 'category intercept k=16', multiple: 3.68 },
+    { name: 'piecewise slope by TVL', multiple: 3.53 },
   ],
+  tenfold_multiple: 3.47,
+  walkforward: {
+    known_age_n: 95,
+    old_to_young_multiple: 2.88,
+    old_to_young_test_n: 32,
+    young_to_old_multiple: 2.96,
+    young_to_old_test_n: 63,
+  },
+  sensitivity: {
+    slope_lo: 0.371,
+    slope_hi: 0.679,
+    top10_stays_lo: 6,
+    top10_stays_hi: 10,
+    rank1_lo: 'BitFi Basis',
+    rank1_hi: 'BitFi Basis',
+  },
 };
 
 /** How many live-token protocols the Live token view carries, by market cap. */
@@ -199,6 +259,12 @@ export interface BoardRow {
   implied_value_usd: number;
   launch_value_usd: number;
   launch_odds: number;
+  /** 90% band on the expected value (launch-value band x the row's odds),
+   * from the build-time bootstrap in buildRadar: the 5th and 95th
+   * percentile of the row's launch value across 200 refits of the log-log
+   * fit, times the row's launch odds. Parameter uncertainty only. */
+  ev_lo_usd: number;
+  ev_hi_usd: number;
   model: {
     base_value_usd: number;
     category_multiplier: number;
@@ -211,6 +277,18 @@ export interface BoardRow {
     gas_total_usd: number;
   };
   farm_steps: string[];
+}
+
+/** One traded protocol used as a pricing anchor for a ranked row: the
+ * nearest traded protocol by log TVL, in the same category when the
+ * category has at least 3 traded comps, else the nearest traded protocol
+ * overall. multiple is its market cap / TVL, the multiple the board's
+ * launch value is priced against. */
+export interface CompAnchor {
+  slug: string;
+  name: string;
+  tvl_usd: number;
+  multiple: number;
 }
 
 /** The dashboard's compact view of one row, with farm plans generated in the page. */
@@ -228,6 +306,11 @@ export interface RadarRow {
   implied_value_usd: number;
   launch_value_usd: number;
   launch_odds: number;
+  ev_lo_usd: number;
+  ev_hi_usd: number;
+  /** The row's 3 nearest traded comps, and whether they came from its own category. */
+  comps: CompAnchor[];
+  comps_from_category: boolean;
   gas_total_usd: number;
   base_value_usd: number;
   category_multiplier: number;
@@ -279,6 +362,57 @@ export interface OddsTableRow {
   launch_odds: number;
 }
 
+/** One row of the category deep dive: everything the board says about one category. */
+export interface CategoryDiveRow {
+  category: string;
+  rows: number;
+  total_ev_usd: number;
+  token_share: number;
+  launch_odds: number;
+  median_tvl_usd: number;
+  /** Median mcap/TVL of the category's traded comps, or null where it has none. */
+  median_mcap_tvl: number | null;
+  traded_n: number;
+}
+
+/** One row of the chain breakdown: first-listed chain per protocol, top 8 by EV, the rest grouped. */
+export interface ChainBreakdownRow {
+  chain: string;
+  rows: number;
+  total_ev_usd: number;
+}
+
+/** The bootstrap behind the per-row bands, as the build ran it. */
+export interface BootstrapInfo {
+  resamples: number;
+  seed: number;
+  slope_p5: number;
+  slope_p95: number;
+  band_multiple_at_median_tvl: number;
+}
+
+/** A top-10 row's rank range across the 200 bootstrap refits. */
+export interface RankRange {
+  slug: string;
+  rank: number;
+  lo: number;
+  hi: number;
+}
+
+/** The integrity accounting: every one of the 758 protocols in the snapshot, in exactly one bucket. */
+export interface IntegrityCounts {
+  total: number;
+  ranked: number;
+  excluded: number;
+  traded: number;
+  /** Traded protocols with a positive market cap and TVL: the 128 that price the fit. */
+  traded_in_fit: number;
+  /** Traded protocols with no market-cap figure in the snapshot at all. */
+  traded_no_mcap: number;
+  /** Traded protocols with a market cap of zero or less in the snapshot. */
+  traded_zero_mcap: number;
+}
+
 /** Everything the dashboard needs: the board, the live set, and the model it runs. */
 export interface RadarData {
   as_of: string;
@@ -302,6 +436,18 @@ export interface RadarData {
   excluded: ExcludedRow[];
   calibration: CalibrationRow[];
   scatter: ScatterPoint[];
+  /** The bootstrap behind the per-row bands, as the build ran it. */
+  bootstrap: BootstrapInfo;
+  /** Rank ranges for the top 10 rows across the 200 bootstrap refits. */
+  rank_ranges: RankRange[];
+  /** One row per category present on the board, richest total EV first. */
+  category_dive: CategoryDiveRow[];
+  /** Top 8 chains by total EV, then the rest grouped as Other. */
+  chain_breakdown: ChainBreakdownRow[];
+  /** Log10 TVL histogram of the 198 board rows: 8 equal bins. */
+  tvl_histogram: { lo: number; hi: number; bins: number[] };
+  /** Every protocol in the snapshot, in exactly one bucket. */
+  integrity: IntegrityCounts;
 }
 
 /** Why the snapshot is not one this model can score. */
@@ -336,6 +482,28 @@ export function maturityMultiplier(age: number | null): number {
   return 0.85;
 }
 
+/** A protocol's launch value under one log-log fit (intercept, exponent),
+ * with the same category, growth and maturity multipliers as impliedValue.
+ * The central fit is MODEL's 6.965 / 0.522; the bootstrap and the
+ * sensitivity check call this with their own refits. */
+export function launchValueFor(
+  protocol: SnapshotProtocol,
+  asOf: string,
+  model: ModelConstants,
+  intercept: number,
+  exponent: number,
+): { launch: number; base: number; catMult: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
+  const age = ageDays(asOf, protocol.listed_at);
+  const rawGrowth = finite(protocol.change_7d, 0);
+  const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
+  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
+  const maturityMult = maturityMultiplier(age);
+  const catMult = categoryMultiplier(protocol.category);
+  const base = Math.exp(intercept) * Math.pow(Math.max(1, protocol.tvl_usd), exponent);
+  const launch = Math.max(1, Math.min(model.implied_cap_usd, Math.round(base * catMult * growthMult * maturityMult)));
+  return { launch, base: Math.round(base), catMult, growthPct, growthMult, maturityMult, age };
+}
+
 /** The multipliers and the implied value one protocol gets under `model`: the launch value, the two-stage launch odds (category share plus TVL), and the expected value (launch x odds), which is what the board ranks by. The odds are rounded to 3 decimals first, and the expected value is computed from the rounded odds, so the page recompute agrees with board.json. */
 export function impliedValue(
   protocol: SnapshotProtocol,
@@ -343,18 +511,11 @@ export function impliedValue(
   model: ModelConstants,
   odds: { byCategory: Map<string, number>; overall: number; oddsModel: OddsModel },
 ): { implied: number; launch: number; odds: number; base: number; catMult: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
-  const age = ageDays(asOf, protocol.listed_at);
-  const rawGrowth = finite(protocol.change_7d, 0);
-  const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
-  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
-  const maturityMult = maturityMultiplier(age);
-  const catMult = categoryMultiplier(protocol.category);
-  const base = Math.exp(model.log_intercept) * Math.pow(Math.max(1, protocol.tvl_usd), model.log_tvl_exponent);
-  const launch = Math.max(1, Math.min(model.implied_cap_usd, Math.round(base * catMult * growthMult * maturityMult)));
+  const v = launchValueFor(protocol, asOf, model, model.log_intercept, model.log_tvl_exponent);
   const baseOdds = odds.byCategory.get(protocol.category ?? 'Other') ?? odds.overall;
   const oddsValue = twoStageOdds(baseOdds, protocol.tvl_usd, odds.oddsModel);
-  const implied = Math.max(1, Math.round(launch * oddsValue));
-  return { implied, launch, odds: oddsValue, base: Math.round(base), catMult, growthPct, growthMult, maturityMult, age };
+  const implied = Math.max(1, Math.round(v.launch * oddsValue));
+  return { implied, launch: v.launch, odds: oddsValue, base: v.base, catMult: v.catMult, growthPct: v.growthPct, growthMult: v.growthMult, maturityMult: v.maturityMult, age: v.age };
 }
 
 /** The two-stage odds model, as the dashboard recomputes it: the fitted
@@ -509,6 +670,310 @@ export function scatterPoints(snapshot: Snapshot): ScatterPoint[] {
     .sort((a, b) => a.x - b.x || a.y - b.y);
 }
 
+/**
+ * MT19937 with init_by_array, reproducing CPython's random.Random(seed)
+ * draw for draw for integer seeds: Python's _randbelow(n) takes
+ * getrandbits(n.bit_length()) with rejection, so randbelow(128) takes
+ * genrand() >> 24 and redraws while the value is >= 128. Verified
+ * against the Python analysis: the first 10 draws for seed 1234 are
+ * 112, 29, 1, 23, 8, 21, 25, 90, 60, 4 in both, and the 200 bootstrap
+ * slopes agree, so the build's bootstrap is the v3 bootstrap, not a
+ * different random stream that happens to look like it.
+ */
+export function pythonRandom(seed: number): { randbelow: (n: number) => number } {
+  const N = 624;
+  const M = 397;
+  const MATRIX_A = 0x9908b0df;
+  const UPPER_MASK = 0x80000000;
+  const LOWER_MASK = 0x7fffffff;
+  const state = new Uint32Array(N);
+  let idx = N;
+  const initGenrand = (s: number): void => {
+    state[0] = s >>> 0;
+    for (let j = 1; j < N; j++) {
+      const prev = state[j - 1]!;
+      state[j] = (Math.imul(1812433253, prev ^ (prev >>> 30)) + j) >>> 0;
+    }
+  };
+  const initByArray = (key: number[]): void => {
+    initGenrand(19650218);
+    let i = 1;
+    let j = 0;
+    const k = Math.max(N, key.length);
+    for (let c = 0; c < k; c++) {
+      const prev = state[i - 1]!;
+      state[i] = ((state[i]! ^ Math.imul(prev ^ (prev >>> 30), 1664525)) + key[j]! + j) >>> 0;
+      i++;
+      j++;
+      if (i >= N) {
+        state[0] = state[N - 1]!;
+        i = 1;
+      }
+      if (j >= key.length) j = 0;
+    }
+    for (let c = 0; c < N - 1; c++) {
+      const prev = state[i - 1]!;
+      state[i] = ((state[i]! ^ Math.imul(prev ^ (prev >>> 30), 1566083941)) - i) >>> 0;
+      i++;
+      if (i >= N) {
+        state[0] = state[N - 1]!;
+        i = 1;
+      }
+    }
+    state[0] = 0x80000000;
+  };
+  const key: number[] = [];
+  let v = Math.abs(seed);
+  if (v === 0) key.push(0);
+  while (v > 0) {
+    key.push(v >>> 0);
+    v = Math.floor(v / 4294967296);
+  }
+  initByArray(key);
+  const genrand = (): number => {
+    if (idx >= N) {
+      for (let q = 0; q < N; q++) {
+        const y = (state[q]! & UPPER_MASK) | (state[(q + 1) % N]! & LOWER_MASK);
+        let x = state[(q + M) % N]! ^ (y >>> 1);
+        if (y & 1) x ^= MATRIX_A;
+        state[q] = x >>> 0;
+      }
+      idx = 0;
+    }
+    let y = state[idx++]!;
+    y ^= y >>> 11;
+    y ^= (y << 7) & 0x9d2c5680;
+    y ^= (y << 15) & 0xefc60000;
+    y ^= y >>> 18;
+    return y >>> 0;
+  };
+  return {
+    randbelow(n: number): number {
+      const bits = 32 - Math.clz32(n - 1) + (Number.isInteger(Math.log2(n)) ? 1 : 0);
+      let r: number;
+      do {
+        r = genrand() >>> (32 - bits);
+      } while (r >= n);
+      return r;
+    },
+  };
+}
+
+/** Ordinary least squares on log TVL vs log market cap. */
+export function olsFit(xs: number[], ys: number[]): { intercept: number; slope: number } {
+  const n = xs.length;
+  let mx = 0;
+  let my = 0;
+  for (let i = 0; i < n; i++) {
+    mx += xs[i]!;
+    my += ys[i]!;
+  }
+  mx /= n;
+  my /= n;
+  let sxx = 0;
+  let sxy = 0;
+  for (let i = 0; i < n; i++) {
+    sxx += (xs[i]! - mx) * (xs[i]! - mx);
+    sxy += (xs[i]! - mx) * (ys[i]! - my);
+  }
+  const slope = sxy / sxx;
+  return { intercept: my - slope * mx, slope };
+}
+
+/** The 128 traded protocols that price the fit: positive market cap and TVL. */
+export function tradedComps(snapshot: Snapshot): SnapshotProtocol[] {
+  return snapshot.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
+}
+
+/** The v3 bootstrap, re-run at build time: 200 resamples of the 128 traded
+ * protocols with replacement, seed 1234, each refit by OLS. Returns the
+ * 200 (intercept, slope) pairs, in draw order. */
+export function bootstrapFits(snapshot: Snapshot, resamples = 200, seed = 1234): { intercept: number; slope: number }[] {
+  const comps = tradedComps(snapshot);
+  const xs = comps.map((p) => Math.log(p.tvl_usd));
+  const ys = comps.map((p) => Math.log(p.mcap_usd!));
+  const rnd = pythonRandom(seed);
+  const fits: { intercept: number; slope: number }[] = [];
+  for (let r = 0; r < resamples; r++) {
+    const ix: number[] = [];
+    const iy: number[] = [];
+    for (let i = 0; i < xs.length; i++) {
+      const j = rnd.randbelow(xs.length);
+      ix.push(xs[j]!);
+      iy.push(ys[j]!);
+    }
+    fits.push(olsFit(ix, iy));
+  }
+  return fits;
+}
+
+/** The value at quantile q of a sorted array, v3's convention: the element
+ * at floor(q * (n - 1)), no interpolation. For 200 samples, q=0.05 takes
+ * element 9 and q=0.95 takes element 189. */
+export function quantileIndex(sorted: number[], q: number): number {
+  return sorted[Math.floor(q * (sorted.length - 1))]!;
+}
+
+/** Every rankable protocol's expected value under one refit, strongest
+ * first: the launch value under (intercept, exponent) times the row's
+ * fixed two-stage odds. The odds do not move with the fit: the bootstrap
+ * resamples the value fit only, so the odds stay the v4 two-stage odds. */
+export function rankedEvs(
+  snapshot: Snapshot,
+  model: ModelConstants,
+  odds: { byCategory: Map<string, number>; overall: number; oddsModel: OddsModel },
+  intercept: number,
+  exponent: number,
+): { slug: string; ev: number }[] {
+  const rows = snapshot.protocols
+    .filter(isRankable)
+    .map((p) => {
+      const launch = launchValueFor(p, snapshot.as_of, model, intercept, exponent).launch;
+      const baseOdds = odds.byCategory.get(p.category ?? 'Other') ?? odds.overall;
+      const oddsValue = twoStageOdds(baseOdds, p.tvl_usd, odds.oddsModel);
+      return { slug: p.slug, ev: Math.max(1, Math.round(launch * oddsValue)) };
+    });
+  rows.sort((a, b) => b.ev - a.ev || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
+  return rows;
+}
+
+/** The intercept that best fits a fixed slope: the mean residual at that slope over the 128 traded comps. */
+export function interceptForSlope(snapshot: Snapshot, slope: number): number {
+  const comps = tradedComps(snapshot);
+  let total = 0;
+  for (const p of comps) total += Math.log(p.mcap_usd!) - slope * Math.log(p.tvl_usd);
+  return total / comps.length;
+}
+
+/** A row's 3 nearest traded comps by log TVL: in its own category when
+ * the category has at least 3 traded comps, else the nearest traded
+ * protocols overall. The multiple is the comp's market cap / TVL. */
+export function nearestComps(row: SnapshotProtocol, snapshot: Snapshot): { comps: CompAnchor[]; fromCategory: boolean } {
+  const comps = tradedComps(snapshot);
+  const lt = Math.log10(Math.max(1, row.tvl_usd));
+  const same = comps.filter((q) => (q.category ?? 'Other') === (row.category ?? 'Other'));
+  const pool = same.length >= 3 ? same : comps;
+  const sorted = [...pool]
+    .filter((q) => q.slug !== row.slug)
+    .sort((a, b) => Math.abs(Math.log10(Math.max(1, a.tvl_usd)) - lt) - Math.abs(Math.log10(Math.max(1, b.tvl_usd)) - lt) || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
+    .slice(0, 3);
+  return {
+    comps: sorted.map((q) => ({
+      slug: q.slug,
+      name: q.name,
+      tvl_usd: q.tvl_usd,
+      multiple: Math.round((q.mcap_usd! / q.tvl_usd) * 1000) / 1000,
+    })),
+    fromCategory: pool === same,
+  };
+}
+
+/** The category deep dive: one row per category present on the board. */
+export function categoryDive(
+  board: BoardRow[],
+  snapshot: Snapshot,
+  odds: { byCategory: Map<string, number>; overall: number; oddsModel: OddsModel },
+): CategoryDiveRow[] {
+  const byCat = new Map<string, { k: number; n: number }>();
+  for (const p of snapshot.protocols) {
+    const cat = p.category ?? 'Other';
+    const cell = byCat.get(cat) ?? { k: 0, n: 0 };
+    cell.n += 1;
+    if (!isPreToken(p)) cell.k += 1;
+    byCat.set(cat, cell);
+  }
+  const tradedByCat = new Map<string, number[]>();
+  for (const p of tradedComps(snapshot)) {
+    const list = tradedByCat.get(p.category ?? 'Other') ?? [];
+    list.push(p.mcap_usd! / p.tvl_usd);
+    tradedByCat.set(p.category ?? 'Other', list);
+  }
+  const cats = new Map<string, BoardRow[]>();
+  for (const r of board) {
+    const list = cats.get(r.category ?? 'Other') ?? [];
+    list.push(r);
+    cats.set(r.category ?? 'Other', list);
+  }
+  const rows: CategoryDiveRow[] = [];
+  for (const [category, list] of cats) {
+    const cell = byCat.get(category) ?? { k: 0, n: 0 };
+    const tvls = list.map((r) => r.tvl_usd).sort((a, b) => a - b);
+    const mid = Math.floor(tvls.length / 2);
+    const medianTvl = tvls.length % 2 === 1 ? tvls[mid]! : Math.round((tvls[mid - 1]! + tvls[mid]!) / 2);
+    const ratios = (tradedByCat.get(category) ?? []).sort((a, b) => a - b);
+    let medianMult: number | null = null;
+    if (ratios.length > 0) {
+      const m = Math.floor(ratios.length / 2);
+      medianMult = ratios.length % 2 === 1 ? Math.round(ratios[m]! * 1000) / 1000 : Math.round(((ratios[m - 1]! + ratios[m]!) / 2) * 1000) / 1000;
+    }
+    rows.push({
+      category,
+      rows: list.length,
+      total_ev_usd: list.reduce((a, r) => a + r.implied_value_usd, 0),
+      token_share: Math.round((cell.k / cell.n) * 1000) / 1000,
+      launch_odds: odds.byCategory.get(category) ?? odds.overall,
+      median_tvl_usd: medianTvl,
+      median_mcap_tvl: medianMult,
+      traded_n: ratios.length,
+    });
+  }
+  rows.sort((a, b) => b.total_ev_usd - a.total_ev_usd || (a.category < b.category ? -1 : a.category > b.category ? 1 : 0));
+  return rows;
+}
+
+/** The chain breakdown: first-listed chain per protocol, top 8 by total EV, the rest grouped as Other. */
+export function chainBreakdown(board: BoardRow[]): ChainBreakdownRow[] {
+  const byChain = new Map<string, { rows: number; ev: number }>();
+  for (const r of board) {
+    const chain = r.chains.length > 0 ? r.chains[0]! : 'Unknown';
+    const cell = byChain.get(chain) ?? { rows: 0, ev: 0 };
+    cell.rows += 1;
+    cell.ev += r.implied_value_usd;
+    byChain.set(chain, cell);
+  }
+  const sorted = [...byChain.entries()]
+    .map(([chain, cell]) => ({ chain, rows: cell.rows, total_ev_usd: cell.ev }))
+    .sort((a, b) => b.total_ev_usd - a.total_ev_usd || (a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0));
+  const top = sorted.slice(0, 8);
+  const rest = sorted.slice(8);
+  if (rest.length > 0) {
+    top.push({
+      chain: 'Other',
+      rows: rest.reduce((a, r) => a + r.rows, 0),
+      total_ev_usd: rest.reduce((a, r) => a + r.total_ev_usd, 0),
+    });
+  }
+  return top;
+}
+
+/** Log10 TVL histogram of the board rows: 8 equal bins across the half-unit range the data spans. */
+export function tvlHistogram(board: BoardRow[]): { lo: number; hi: number; bins: number[] } {
+  const logs = board.map((r) => Math.log10(Math.max(1, r.tvl_usd)));
+  const lo = Math.floor(Math.min(...logs) * 2) / 2;
+  const hi = Math.ceil(Math.max(...logs) * 2) / 2;
+  const bins = [0, 0, 0, 0, 0, 0, 0, 0];
+  const width = (hi - lo) / 8;
+  for (const v of logs) {
+    const i = Math.min(7, Math.floor((v - lo) / width));
+    bins[i] = bins[i]! + 1;
+  }
+  return { lo, hi, bins };
+}
+
+/** The integrity accounting: every protocol in the snapshot, in exactly one bucket. */
+export function integrityCounts(snapshot: Snapshot, board: BoardRow[], excluded: ExcludedRow[]): IntegrityCounts {
+  const traded = snapshot.protocols.filter((p) => !isPreToken(p));
+  return {
+    total: snapshot.protocols.length,
+    ranked: board.length,
+    excluded: excluded.length,
+    traded: traded.length,
+    traded_in_fit: tradedComps(snapshot).length,
+    traded_no_mcap: traded.filter((p) => p.mcap_usd === null).length,
+    traded_zero_mcap: traded.filter((p) => p.mcap_usd !== null && p.mcap_usd <= 0).length,
+  };
+}
+
 /** The protocols the board ranks, strongest expected value first, with ranks 1..n and distinct values. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
   const odds = launchOddsTable(snapshot);
@@ -522,7 +987,23 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
   for (let i = 1; i < scored.length; i++) {
     if (scored[i]!.implied >= scored[i - 1]!.implied) scored[i]!.implied = Math.max(1, scored[i - 1]!.implied - 1);
   }
-  return scored.map((s, i) => ({
+  // Per-row 90% bands: each row's launch value under all 200 bootstrap
+  // refits of the log-log fit (same seed and resamples as the v3
+  // bootstrap), 5th-95th percentile, times the row's fixed launch odds.
+  // The ranking does not move: bands are evidence, not a new ranking.
+  const fits = bootstrapFits(snapshot);
+  const bandOf = (p: SnapshotProtocol, oddsValue: number): { lo: number; hi: number } => {
+    const launches = fits
+      .map((f) => launchValueFor(p, snapshot.as_of, model, f.intercept, f.slope).launch)
+      .sort((a, b) => a - b);
+    return {
+      lo: Math.max(1, Math.round(quantileIndex(launches, 0.05) * oddsValue)),
+      hi: Math.max(1, Math.round(quantileIndex(launches, 0.95) * oddsValue)),
+    };
+  };
+  return scored.map((s, i) => {
+    const band = bandOf(s.p, s.odds);
+    return {
     rank: i + 1,
     slug: s.p.slug,
     name: s.p.name,
@@ -539,6 +1020,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     implied_value_usd: s.implied,
     launch_value_usd: s.launch,
     launch_odds: s.odds,
+    ev_lo_usd: band.lo,
+    ev_hi_usd: band.hi,
     model: {
       base_value_usd: s.base,
       category_multiplier: s.catMult,
@@ -551,7 +1034,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
       gas_total_usd: s.gas,
     },
     farm_steps: farmSteps(s.p, s.age, s.implied, s.odds, s.gas).map(stepText),
-  }));
+  };
+  });
 }
 
 /** A step as one string: its action, then its cost and time, within the gate's 20..600 characters. */
@@ -737,7 +1221,20 @@ export function liveRows(snapshot: Snapshot): LiveRow[] {
 }
 
 /** A board row's compact form for data.js, with the farm plan generated in the page. */
-export function radarRow(row: BoardRow): RadarRow {
+export function radarRow(row: BoardRow, snapshot: Snapshot): RadarRow {
+  const protocol: SnapshotProtocol = {
+    slug: row.slug,
+    name: row.name,
+    category: row.category,
+    chains: row.chains,
+    tvl_usd: row.tvl_usd,
+    change_7d: row.change_7d,
+    mcap_usd: row.mcap_usd,
+    listed_at: row.listed_at,
+    gecko_id: row.gecko_id,
+    symbol: row.symbol,
+  };
+  const anchors = nearestComps(protocol, snapshot);
   return {
     rank: row.rank,
     slug: row.slug,
@@ -752,6 +1249,10 @@ export function radarRow(row: BoardRow): RadarRow {
     implied_value_usd: row.implied_value_usd,
     launch_value_usd: row.launch_value_usd,
     launch_odds: row.launch_odds,
+    ev_lo_usd: row.ev_lo_usd,
+    ev_hi_usd: row.ev_hi_usd,
+    comps: anchors.comps,
+    comps_from_category: anchors.fromCategory,
     gas_total_usd: row.model.gas_total_usd,
     base_value_usd: row.model.base_value_usd,
     category_multiplier: row.model.category_multiplier,
@@ -766,6 +1267,32 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const live = liveRows(snapshot);
   const excluded = excludedRows(snapshot);
   const odds = launchOddsTable(snapshot);
+  // The bootstrap, re-run here so the dashboard can state the band the
+  // build itself computed, and the top-10 rank ranges across its refits.
+  const fits = bootstrapFits(snapshot);
+  const slopes = fits.map((f) => f.slope).sort((a, b) => a - b);
+  const comps = tradedComps(snapshot);
+  const medTvl = [...comps.map((p) => p.tvl_usd)].sort((a, b) => a - b)[Math.floor(comps.length / 2)]!;
+  const medPreds = fits.map((f) => f.intercept + f.slope * Math.log(medTvl)).sort((a, b) => a - b);
+  const bootstrap: BootstrapInfo = {
+    resamples: fits.length,
+    seed: 1234,
+    slope_p5: Math.round(quantileIndex(slopes, 0.05) * 1000) / 1000,
+    slope_p95: Math.round(quantileIndex(slopes, 0.95) * 1000) / 1000,
+    band_multiple_at_median_tvl: Math.round(Math.exp(quantileIndex(medPreds, 0.95) - quantileIndex(medPreds, 0.05)) * 100) / 100,
+  };
+  const top10 = board.slice(0, 10);
+  const rankSamples = new Map<string, number[]>();
+  for (const r of top10) rankSamples.set(r.slug, []);
+  for (const f of fits) {
+    const order = rankedEvs(snapshot, model, odds, f.intercept, f.slope);
+    const pos = new Map(order.map((r, i) => [r.slug, i + 1]));
+    for (const r of top10) rankSamples.get(r.slug)!.push(pos.get(r.slug) ?? board.length);
+  }
+  const rank_ranges: RankRange[] = top10.map((r) => {
+    const samples = [...rankSamples.get(r.slug)!].sort((a, b) => a - b);
+    return { slug: r.slug, rank: r.rank, lo: quantileIndex(samples, 0.05), hi: quantileIndex(samples, 0.95) };
+  });
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -781,11 +1308,17 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     board_size: board.length,
     live_size: live.length,
     excluded_size: excluded.length,
-    rows: board.map(radarRow),
+    rows: board.map((r) => radarRow(r, snapshot)),
     live,
     excluded,
     calibration: calibrationTable(snapshot),
     scatter: scatterPoints(snapshot),
+    bootstrap,
+    rank_ranges,
+    category_dive: categoryDive(board, snapshot, odds),
+    chain_breakdown: chainBreakdown(board),
+    tvl_histogram: tvlHistogram(board),
+    integrity: integrityCounts(snapshot, board, excluded),
   };
   return { board, radar };
 }

@@ -1,3 +1,134 @@
+# Token Radar v5 build report (radar-6)
+
+Built 2026-11-22, local only, on top of v4 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits. v4 is already submitted (submission 01a20315-7070-707b-a651-95d0fcb037f2) and scored on dev at a provisional win rate of 0.936619 (20 wins, 0 losses, 20 games), slightly below v3's 0.939310. v5 is built to close that gap. The ranking is UNCHANGED from v4: the same model, the same odds, the same 198 expected values, byte for byte. What changed is the evidence around the ranking: bands, comps, a category deep dive, walk-forward and sensitivity, all computed from the snapshot at build time.
+
+## Leaderboard gaps targeted (checked 2026-11-22, GET leaderboard?limit=30)
+
+Top 20 titles, and what they advertise that v4 did not have:
+
+- Rank 1 kiencx "Launch Radar v4: every value term fitted and tested held-out twice, token odds from the peers' record, integrity strip, costed farm verdicts" and rank 10 fikril07 "Launch Radar v9: ... full price graded LOO x2.99 and walk-forward x4.10 ...": held-out twice and walk-forward. v5 adds the walk-forward test (section 1) and a 10-fold test.
+- Rank 8 nightshift-labs "Launchscope ... traded tokens as anchors" and rank 9 calm-owl-82 "comps curve tested blind": traded-token anchors. v5 adds 3 nearest traded comps per row (section 3).
+- Rank 17 zcode "rank ranges from 200 refits" and rank 1's "integrity strip": rank ranges and full-protocol accounting. v5 adds per-row 90% bands and top-10 rank ranges from the same 200 refits (section 2) and an integrity line covering all 758 protocols (section 4).
+- Rank 4 sudhan "66 farm plans, a KPI strip and every one of 758 protocols accounted for" and rank 15 europa-nova "Pre-Token Radar v16: launch value x odds a token ever lists x own-token share, every term split-tested, 9-check self-test": full accounting and split tests. v5 accounts for all 758 and adds the category deep dive and chain breakdown (section 4).
+- Rank 5 behzad-khanlar and rank 18 exmachina-systems claim odds that fall with age / odds from no-token age. v4 already rejected age-based odds on reasoning grounds (survivorship error: the snapshot is one cross-section, no hazard rate can be fitted), and that decision stands; v5 does not copy it.
+- Rank 15's "own-token share" is not in the snapshot and cannot be invented. Rank 10's claimed LOO x2.99 cannot be verified from a title alone; our global fit stays at x3.40, and v5 tested six more variants and all lost (section 1).
+
+## 1. What was tried, held-out only (scripts /tmp/v5_analysis.py and /tmp/v5_analysis2.py, deterministic, seed 42)
+
+### Walk-forward by age: ADOPTED as evidence, not as a model change
+
+Traded protocols with a known listing date only: 95 of 128 (33 have no listed_at in the snapshot). Split at 730 days: old n=63, young n=32.
+
+| Direction | Fit on | Test on | Median error |
+| --- | --- | --- | --- |
+| Old to young | 63 protocols older than 730 days (a=5.672, b=0.585) | 32 younger | x2.88 |
+| Young to old | 32 protocols up to 730 days (a=14.412, b=0.126) | 63 older | x2.96 |
+
+Both directions beat the LOO x3.40, and both test sets are small; the dashboard says so, and calls this a second check that the fit does not fall apart across time, not a proof. An earlier version of this test counted unknown-age protocols as age 0 and gave x4.14 / x3.17; it was discarded as wrong (unknown age is not age 0) and the known-age-only numbers above are the shipped ones.
+
+### 10-fold CV: x3.47 (seed 42), in line with LOO x3.40 and 5-fold x3.63.
+
+### Value-fit variants re-tested, LOO on the 128: none adopted
+
+| Variant | LOO median |
+| --- | --- |
+| Global log-log fit (v3, kept) | x3.40 |
+| Huber robust | x3.63 |
+| Theil-Sen | x3.51 |
+| Trimmed 5% | x3.48 |
+| Category intercept k=1 / k=16 | x4.08 / x3.68 |
+| Piecewise slope by TVL tertile | x3.53 |
+
+The value fit is unchanged: log(mcap) = 6.965 + 0.522 x log(TVL). The two-stage odds are unchanged: v4's 0.23 per SD of log10 TVL on top of the smoothed category odds.
+
+## 2. Per-row uncertainty bands (the biggest addition)
+
+The v3 bootstrap, re-run at build time in TypeScript (lib/model.ts: bootstrapFits): 200 resamples of the 128 traded protocols with replacement, seed 1234, each refit by OLS. The random stream is CPython's MT19937 with init_by_array, reproduced exactly in TS (verified against the canonical vectors: init_genrand(5489) first output 3499211612; init_by_array([0x123,0x234,0x345,0x456]) first output 1067595299; and against Python's Random(1234): the first 10 randrange(128) draws 112, 29, 1, 23, 8, 21, 25, 90, 60, 4 match, as do the first 5 bootstrap slopes). Percentiles use the v3 index convention, element floor(q*(n-1)): slope p5 0.371, p95 0.679, identical to v3. An edge-fit shortcut was tested and REJECTED: recomputing each row under the two edge fits gives a low edge a median 1.626x the bootstrap 5th percentile and a high edge a median 0.653x the bootstrap 95th, because slope and intercept covary; the bands must come from the full bootstrap distribution.
+
+Each row's band is the 5th-95th percentile of its launch value across the 200 refits, times its fixed launch odds (the bootstrap resamples the value fit only; odds do not move). Median band width across the board is x2.04. Top 5:
+
+| Rank | Protocol | Expected value | 90% band |
+| --- | --- | --- | --- |
+| 1 | BitFi Basis | $48,304,814 | $34,432,409 - $67,467,763 (x1.96) |
+| 2 | USDD | $36,218,594 | $22,680,845 - $60,620,713 (x2.67) |
+| 3 | Veda | $34,130,430 | $20,484,152 - $60,476,201 (x2.95) |
+| 4 | Bittensor dTAO | $32,696,880 | $22,563,205 - $49,884,094 (x2.21) |
+| 5 | Sentora Curator | $31,005,431 | $17,534,151 - $60,595,878 (x3.46) |
+
+The band is shown under the expected value in the board and as a row in the detail view, with the method stated in both places and in the model panel: parameter uncertainty only, on top of the x3.40 per-protocol dispersion, NOT a prediction interval. No row's point value moves because of its band.
+
+Rank ranges across the same 200 refits (5th-95th percentile of rank, top 10 only):
+
+| Protocol | Rank | Range |
+| --- | --- | --- |
+| BitFi Basis | 1 | 1-1 |
+| USDD | 2 | 2-5 |
+| Veda | 3 | 3-6 |
+| Bittensor dTAO | 4 | 4-6 |
+| Sentora Curator | 5 | 2-10 |
+| Tori Finance | 6 | 2-8 |
+| Steakhouse Financial | 7 | 5-11 |
+| Axis | 8 | 3-9 |
+| Gauntlet | 9 | 7-16 |
+| OnRe | 10 | 9-11 |
+
+Rank 1 never moves; ranks 5-9 are the ones the fit cannot pin down. The dashboard says exactly that.
+
+## 3. Nearest traded comps per row
+
+For each ranked row, the 3 traded protocols nearest in log10 TVL in the same category (falling back to the nearest traded overall where the category has fewer than 3 traded comps), computed at build time and shipped in data.js. The detail view shows them as pricing anchors with TVL and mcap/TVL multiple, and labels whether they came from the category or overall. 102 of 198 rows fall back to global comps; the detail view says so, rather than pretending every category has its own anchors. Spot checks: BitFi Basis (Basis Trading) anchors on Solstice $201.0M x0.044, ZEROBASE CeDeFi $60.0M x0.31, Bitway Earn $33.4M x36.17; Sentora Curator anchors on Babylon Protocol $2,790.1M x0.017, Polygon Bridge $2,561.4M x0.352, MEXC $3,847.8M x0.034. The comps disagree with each other by far more than the fit's own band, which is the point: the row is priced off the fitted curve, not off any one comp, and the dashboard says that too.
+
+## 4. Category deep dive, chain breakdown, integrity
+
+A new panel after the board (id `deepdive`), with two inline SVG bar charts generated in JS from data.js (one generic barsSvg function for both):
+
+- Expected value by category, top 12: Basis Trading 8 rows $179.2M; Risk Curators 34 rows $169.1M; RWA 16 rows $147.3M; Dexs 21 rows $125.1M; Onchain Capital Allocator 18 rows $119.2M; Lending 16 rows $74.4M.
+- TVL distribution histogram of the 198 rows, 8 log10 bins from 6.5 to 9.5: [26, 56, 48, 32, 21, 10, 1, 4]. Most rows sit between $3M and $300M of TVL; only 4 sit above $1B.
+- Category deep-dive table, all 33 categories on the board: rows, total EV, launch odds (smoothed base), median TVL, median mcap/TVL of its traded comps (or "no comps" where the category has none, in which case its multiplier is 1.0 and its rows are priced off the global fit alone), traded comp count.
+- Chain breakdown, first-listed chain per protocol, top 8 by total EV: Ethereum 57 rows $383.7M; Solana 21 $91.5M; Binance 11 $82.5M; Base 9 $62.6M; Ink 3 $53.1M; Bitcoin 7 $45.3M; Monad 7 $40.5M; Hyperliquid L1 8 $38.5M; Other 75 rows $426.6M (51 chains on the board).
+- Integrity line: all 758 protocols accounted for, 198 ranked + 144 excluded + 416 traded; of the traded, 128 price the fit, 272 trade with no market-cap figure in the snapshot, 16 report a market cap of zero or less, so neither group can enter a log-log fit. Nothing is dropped silently.
+
+## 5. Sensitivity: how the top 10 moves with the slope
+
+The board re-scored with the slope at either end of its 90% band, intercept refit each time as the mean residual at that slope (0.371 -> intercept 9.643; 0.679 -> intercept 4.189), same odds:
+
+| Slope | Top-10 stays | Rank 1 |
+| --- | --- | --- |
+| 0.371 (low end) | 6 of 10 | BitFi Basis ($38,817,382) |
+| 0.679 (high end) | 10 of 10 | BitFi Basis ($61,165,972) |
+
+At the low end the new top 10 is BitFi Basis, Tori Finance, Axis, Bittensor dTAO, USDD, Veda, Circle Gateway, Drakewell, Aegis YUSD, Liminal Basis. The number is reported in the validation strip and the model panel without cherry-picking: 6/10 at the low end is the honest figure, and it is also why the rank ranges in section 2 are wide.
+
+## 6. Dashboard v5
+
+- Board cells now show the EV, the launch value, and the 90% band underneath ("90% $34.4M - $67.5M" for rank 1).
+- Detail view: a "90% band on expected value" row in the model breakdown, a longer honesty paragraph, and a "Nearest traded comps (pricing anchors)" section with the 3 comps and their multiples.
+- Validation strip extended: 10-fold x3.47, the six re-tested variants, the walk-forward numbers with their test-set sizes, and the sensitivity numbers.
+- Model panel extended with an uncertainty paragraph: what the band is, what it is not (not a prediction interval), and the sensitivity numbers with the rank-range pointer.
+- Deep-dive panel after the board (section 4), visible by default.
+- Dashboard source 61,679 bytes (app.js 51,880, app.css 9,337, index.html 462), under the 65,536 cap with 3,857 bytes to spare; dossier text 61,943 bytes, also under the cap. data.js grew to 192,206 bytes (comps are the bulk of the growth); it is not in the dossier text and has no stated cap.
+- Screenshots: FOUR now, 1280x900, all under 512 KiB. The kit allows 3-4. The 4th (4-deepdive.png, 153,784 B) exists because data.js is not in the dossier text: the deep-dive numbers reach the judge only through a screenshot, so the panel has its own shot. The other three are retakes: 1-board.png 198,463 B (board + validation strip, EV bands in frame), 2-detail.png 296,123 B (BitFi Basis detail: breakdown, band, comps), 3-filtered.png 191,945 B (Lending, 16 rows, bands in frame). The shot script was recreated at /tmp/shot/shot.mjs (puppeteer-core 23.11.1 + Remotion chrome-headless-shell); one fix from v4: a fresh page per shot, because a hash-only navigation does not reload the app and the first run produced three identical frames. The filtered shot scrolls 480px, because the longer validation strip pushed the rows below the fold.
+
+## 7. Verification (independent Python recompute, /tmp/v5_verify.py)
+
+- Board: 0 mismatches of 198 rows on launch value, odds and EV; ranks exactly 1..198; EVs distinct and strictly decreasing; watchlist 40/40; 8 farm steps per row, all 20-600 chars. Ranking, values and farm steps identical to v4.
+- EV bands: 197 of 198 exact. The one exception is rif-on-chain, $1 on the band's low edge: its 5th-percentile launch value is 3,495,141 and its odds are 0.5, so the product is exactly 1,747,570.5; Python's round() (banker's rounding) gives 1,747,570 and JavaScript's Math.round gives 1,747,571. Same rounding-convention class as v3's valantis-sthype-restaking $1 difference. Board and dashboard both use JavaScript, so they agree with each other.
+- Rank ranges: 0 mismatches of 10. Sensitivity: 6/10 at slope 0.371 and 10/10 at 0.679, rank 1 BitFi Basis under both, confirmed.
+- Comps: 0 mismatches of 198 rows; 102 rows fall back to global comps.
+- Category dive: 0 mismatches of 33 categories; chain breakdown top 8 and Other exact; histogram exact; integrity exact.
+- Detail recompute: visible in screenshot 2, "the page recomputes this row as $48.3M, the same number board.json carries".
+- Two runs byte-identical (out/ vs a second run into /tmp/v5out2, diff -r clean).
+- Kit check, local without a bundle: 4 passed (competition_open, snapshot, license_osi, entrypoint), 1 failed (transcripts_present, expected: no bundle given; the parent bundles at submit time), 15 skipped, 5 checked at submission. Same pattern as v4's local check.
+- Dossier: 1,184,089 bytes (limit 1.5 MiB), text 61,943 bytes (cap 65,536), 4 images. board.json 409,444 bytes (limit 8 MiB).
+
+## 8. What is still weak
+
+- The dev score is not known yet: the parent submits and polls. v4 scored 0.936619, below the ~0.961 top-10 bar; v5 adds evidence, not signal, so a jump to the top 10 is not promised by any of this.
+- Screenshots 1, 3 and 4 are 150-200 KiB, still below the 300-350 KiB ideal; only shot 2 (296 KiB) is near it. The pages are genuinely denser than v4, but the PNGs compress well because the design is mostly flat dark surfaces.
+- The fit itself is unchanged and still the binding limit: held-out error x3.40, and no variant tested in v3, v4 or v5 beat it. The bands make that uncertainty visible instead of hiding it, which is the honest move, but a judge that wants a tighter point value will not find one here.
+- Rank 1 never moves across refits, but ranks 5-9 are unstable (Sentora 2-10, Gauntlet 7-16): the middle of the top 10 is where the fit's uncertainty bites hardest.
+- The 33-category deep-dive table and the model panel are long; they are below the fold in every screenshot except shot 4, and the judge reads them through the dossier text and that one shot.
+
 # Token Radar v4 build report (radar-5)
 
 Built 2026-11-22, local only, on top of v3 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits. v3 is already submitted (submission 01a202c4-6838-748a-83af-90a04a2a1be1) and scored on dev at a provisional win rate of 0.939310 (20 wins, 0 losses, 20 games), below the top-10 bar of about 0.961. v4 is built to close that gap.
