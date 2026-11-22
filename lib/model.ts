@@ -1,46 +1,28 @@
-// Token Radar v3 model (radar-4): the v2 log-log comps fit, now with
-// held-out validation, launch odds and expected-value ranking.
+// Token Radar v4 model (radar-5): the v3 log-log comps fit, now with
+// launch odds v2 and the value fit re-tested and kept.
 //
-// Validation (2026-11-22, run on the same 128 traded protocols; see the
-// build report for the full table): leave-one-out median absolute log
-// error 1.223 (x3.40), 5-fold (seeded, seed 42) median 1.290 (x3.63).
-// Fold slopes 0.483-0.584 and intercepts 5.83-7.74, so the slope is stable
-// and the intercept moves with it, as it must. Alternatives tested on the
-// same held-out folds did not beat it: size-bucketed median multiple
-// x4.37, quadratic in log TVL x3.67, slope fixed at 0.5 x3.59 (a 0.04
-// gain, noise, not a reason to change the fitted slope), category
-// residual multipliers x3.85. So radar-4 keeps the fitted slope 0.522
-// and intercept 6.965: the model is honest about being an
-// order-of-magnitude estimate, and no alternative earned a change.
-// Bootstrap (200 resamples, seed 1234): slope 90% band 0.371-0.679;
-// predicted log mcap at the median traded TVL has a 90% band x1.89 wide
-// (parameter uncertainty, on top of the x3.4 per-protocol dispersion).
+// Odds v2 (2026-11-22, 5-fold CV, seed 42, all 758 protocols; scripts in
+// /tmp/v4_analysis.py and /tmp/v4_analysis2.py): the v3 category-only
+// smoothed odds score log loss 0.6423, AUC 0.6455. A full logistic on
+// category + log TVL + age band scores 0.5967 / 0.7431, but the whole gain
+// is the age bands (young protocols have not had time to launch yet, old
+// ones mostly have): for the board that sign is backwards, a protocol
+// that has sat tokenless for five years is a worse forward bet, not a
+// better one, and the age model would put Polymarket International
+// (1,845 days, no token) in the top 10 at 77% odds. So age is NOT used.
+// What IS adopted is a two-stage model: the v3 smoothed category odds as
+// the offset, plus one fitted TVL term, b = 0.230 per SD of log10 TVL.
+// Held out it beats the v3 baseline on both metrics: log loss 0.6377,
+// AUC 0.6641. The gain is small and the report says so; it is one
+// parameter, it keeps v3's calibration, and it does not resurrect the
+// Risk Curators (their TVL lift is not enough to outrun the 21% base).
 //
-// Ranking change: v2 ranked by launch value alone, so Risk Curators
-// (Sentora, Steakhouse, Gauntlet) topped the board. But only 12.8% of
-// Risk Curators in this snapshot ever launched a token (5 of 39), while
-// 78.7% of Lending and 73.7% of Dexs did. A launch value is not a
-// ranking claim until it is weighted by whether a token ever launches.
-// radar-4 ranks by expected value = launch value x launch odds, where
-// launch odds are the category's token share in this snapshot, smoothed
-// toward the overall 54.9% with alpha 10: (k + 10 x 0.549) / (n + 10).
-// Odds on the board run 0.214 (Risk Curators) to 0.759 (Lending).
-// Age is NOT used for odds, on purpose: the token share rises with age
-// (32.5% under a year, 79.7% over four years) because that share is
-// cumulative, a protocol that has had four years to launch and still has
-// not is a worse forward bet, not a better one. The snapshot is one
-// cross-section, so no hazard rate can be fitted from it, and inventing
-// one would be fabrication.
-//
-// Net farm verdict: every farm plan now ends with a costed verdict:
-// about $X of gas across 8 transactions on the protocol's chain, capital
-// $Y at risk for Z days, against the expected launch value at the
-// category's launch odds. Your share of any launch is unknown, so the
-// verdict says so and treats farming as a lottery ticket, never an
-// investment.
-//
-// v2's exclusion rule is unchanged: bridged, wrapped, staked and
-// exchange products stay out of the board with their reasons.
+// Value fit v2: per-category slope+intercept (n>=8 traded comps, shrunk
+// k=2/4/8) scores LOO x3.64-3.66 against the global fit's x3.40;
+// per-category intercept-only x3.45; adding change_7d x3.76, n_chains
+// x3.66, log age x3.56. Nothing beat the global fit, so the value fit is
+// unchanged: log(mcap) = 6.965 + 0.522 x log(TVL), LOO x3.40, 5-fold
+// x3.63. The dashboard states the rejections instead of hiding them.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -89,7 +71,12 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-4';
+export const MODEL_VERSION = 'radar-5';
+
+/** The two-stage odds coefficient: log-odds gained per SD of log10 TVL,
+ * fitted by Newton on all 758 protocols (full-sample fit; the 5-fold CV
+ * folds each fitted their own b and the win held). */
+export const ODDS_LOG_TVL_COEF = 0.23;
 
 /** Held-out validation of the log-log fit, run 2026-11-22 on the 128 traded protocols (see BUILD_V1.md). */
 export interface ValidationResult {
@@ -104,6 +91,17 @@ export interface ValidationResult {
   bootstrap_slope_p95: number;
   bootstrap_band_multiple: number;
   alternatives: { name: string; multiple: number }[];
+  /** Odds-model 5-fold CV on all 758 protocols (seed 42): v3 category-only baseline vs the adopted two-stage model, and the age model that was tested and rejected. */
+  odds_cv: {
+    baseline_logloss: number;
+    baseline_auc: number;
+    twostage_logloss: number;
+    twostage_auc: number;
+    age_logloss: number;
+    age_auc: number;
+  };
+  /** Value-fit alternatives re-tested for v4 by LOO on the 128 traded protocols; all lost to the global fit, so none was adopted. */
+  value_tests: { name: string; multiple: number }[];
 }
 
 export const VALIDATION: ValidationResult = {
@@ -122,6 +120,21 @@ export const VALIDATION: ValidationResult = {
     { name: 'quadratic in log TVL', multiple: 3.67 },
     { name: 'slope fixed at 0.5', multiple: 3.59 },
     { name: 'category-residual multipliers', multiple: 3.85 },
+  ],
+  odds_cv: {
+    baseline_logloss: 0.6423,
+    baseline_auc: 0.6455,
+    twostage_logloss: 0.6377,
+    twostage_auc: 0.6641,
+    age_logloss: 0.5967,
+    age_auc: 0.7431,
+  },
+  value_tests: [
+    { name: 'per-category slope+intercept (shrunk)', multiple: 3.64 },
+    { name: 'per-category intercept-only', multiple: 3.45 },
+    { name: 'global + log age', multiple: 3.56 },
+    { name: 'global + n_chains', multiple: 3.66 },
+    { name: 'global + change_7d', multiple: 3.76 },
   ],
 };
 
@@ -275,6 +288,10 @@ export interface RadarData {
   model_version: string;
   validation: ValidationResult;
   odds_table: OddsTableRow[];
+  /** The two-stage odds parameters, so the page recomputes odds exactly. */
+  odds_model: OddsModel;
+  /** Every category's smoothed base odds, so the page recomputes odds exactly. */
+  odds_base: Record<string, number>;
   watchlist_size: number;
   watchlist: string[];
   board_size: number;
@@ -319,13 +336,12 @@ export function maturityMultiplier(age: number | null): number {
   return 0.85;
 }
 
-/** The multipliers and the implied value one protocol gets under `model`: the launch value, the category's launch odds, and the expected value (launch x odds), which is what the board ranks by. The odds are rounded to 3 decimals first, and the expected value is computed from the rounded odds, so the page recompute agrees with board.json. */
+/** The multipliers and the implied value one protocol gets under `model`: the launch value, the two-stage launch odds (category share plus TVL), and the expected value (launch x odds), which is what the board ranks by. The odds are rounded to 3 decimals first, and the expected value is computed from the rounded odds, so the page recompute agrees with board.json. */
 export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
   model: ModelConstants,
-  oddsByCategory: Map<string, number>,
-  overallOdds: number,
+  odds: { byCategory: Map<string, number>; overall: number; oddsModel: OddsModel },
 ): { implied: number; launch: number; odds: number; base: number; catMult: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
@@ -335,13 +351,22 @@ export function impliedValue(
   const catMult = categoryMultiplier(protocol.category);
   const base = Math.exp(model.log_intercept) * Math.pow(Math.max(1, protocol.tvl_usd), model.log_tvl_exponent);
   const launch = Math.max(1, Math.min(model.implied_cap_usd, Math.round(base * catMult * growthMult * maturityMult)));
-  const odds = oddsByCategory.get(protocol.category ?? 'Other') ?? overallOdds;
-  const implied = Math.max(1, Math.round(launch * odds));
-  return { implied, launch, odds, base: Math.round(base), catMult, growthPct, growthMult, maturityMult, age };
+  const baseOdds = odds.byCategory.get(protocol.category ?? 'Other') ?? odds.overall;
+  const oddsValue = twoStageOdds(baseOdds, protocol.tvl_usd, odds.oddsModel);
+  const implied = Math.max(1, Math.round(launch * oddsValue));
+  return { implied, launch, odds: oddsValue, base: Math.round(base), catMult, growthPct, growthMult, maturityMult, age };
+}
+
+/** The two-stage odds model, as the dashboard recomputes it: the fitted
+ * TVL coefficient and the log10 TVL mean/SD over all 758 protocols. */
+export interface OddsModel {
+  log_tvl_coef: number;
+  tvl_mean_log10: number;
+  tvl_sd_log10: number;
 }
 
 /** Launch odds from the snapshot itself: each category's share of protocols that already have a token, smoothed toward the overall share with alpha 10 so small categories are pulled to the middle instead of trusted at 0% or 100%. */
-export function launchOddsTable(snapshot: Snapshot): { overall: number; byCategory: Map<string, number>; table: OddsTableRow[] } {
+export function launchOddsTable(snapshot: Snapshot): { overall: number; byCategory: Map<string, number>; table: OddsTableRow[]; oddsModel: OddsModel } {
   let tokenCount = 0;
   const byCat = new Map<string, { k: number; n: number }>();
   for (const p of snapshot.protocols) {
@@ -363,7 +388,30 @@ export function launchOddsTable(snapshot: Snapshot): { overall: number; byCatego
     table.push({ category, n: cell.n, token_share: Math.round((cell.k / cell.n) * 1000) / 1000, launch_odds: smoothed });
   }
   table.sort((a, b) => b.launch_odds - a.launch_odds || b.n - a.n || (a.category < b.category ? -1 : a.category > b.category ? 1 : 0));
-  return { overall: Math.round(overall * 1000) / 1000, byCategory, table };
+  const logs = snapshot.protocols.map((p) => Math.log10(Math.max(1, p.tvl_usd)));
+  const mean = logs.reduce((a, b) => a + b, 0) / logs.length;
+  const sd = Math.sqrt(logs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / logs.length);
+  return {
+    overall: Math.round(overall * 1000) / 1000,
+    byCategory,
+    table,
+    oddsModel: {
+      log_tvl_coef: ODDS_LOG_TVL_COEF,
+      tvl_mean_log10: Math.round(mean * 10000) / 10000,
+      tvl_sd_log10: Math.round(sd * 10000) / 10000,
+    },
+  };
+}
+
+/** The two-stage launch odds for one protocol: the category's smoothed
+ * token share as the log-odds offset, plus the fitted TVL term, rounded
+ * to 3 decimals. The rounding happens here, in both the board build and
+ * the page recompute, so they agree exactly. */
+export function twoStageOdds(baseOdds: number, tvlUsd: number, oddsModel: OddsModel): number {
+  const logit = Math.log(baseOdds / (1 - baseOdds));
+  const z = (Math.log10(Math.max(1, tvlUsd)) - oddsModel.tvl_mean_log10) / oddsModel.tvl_sd_log10;
+  const p = 1 / (1 + Math.exp(-(logit + oddsModel.log_tvl_coef * z)));
+  return Math.round(p * 1000) / 1000;
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -466,7 +514,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
   const odds = launchOddsTable(snapshot);
   const rankable = snapshot.protocols.filter(isRankable);
   const scored = rankable.map((p) => {
-    const v = impliedValue(p, snapshot.as_of, model, odds.byCategory, odds.overall);
+    const v = impliedValue(p, snapshot.as_of, model, odds);
     return { p, ...v, gas: gasTotalUsd(p) };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
@@ -567,7 +615,7 @@ export function netVerdict(p: SnapshotProtocol, age: number | null, expectedValu
   const pct = Math.round(odds * 100);
   let call: string;
   if (odds < 0.3) {
-    call = `Long shot: only about ${pct}% of protocols in this category ever launched a token, so a launch here would surprise the record.`;
+    call = `Long shot: launch odds of only about ${pct}%, so a launch here would surprise the record.`;
   } else if (gasTotal >= 40) {
     call = `Dear on ${chain}: the gas alone runs to about $${gasTotal}, so only farm if the ticket is worth that to you.`;
   } else if (odds >= 0.6) {
@@ -726,6 +774,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     model_version: MODEL_VERSION,
     validation: VALIDATION,
     odds_table: odds.table.filter((r) => r.n >= 8),
+    odds_model: odds.oddsModel,
+    odds_base: Object.fromEntries(odds.byCategory),
     watchlist_size: snapshot.watchlist.length,
     watchlist: [...snapshot.watchlist],
     board_size: board.length,

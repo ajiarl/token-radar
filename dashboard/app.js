@@ -29,9 +29,20 @@
     return Math.max(0, Math.round(days)) + 'd';
   }
   // The model, as in lib/model.ts: log-log comps fit, category multiplier,
-  // modest growth, capped maturity, then launch odds: the page shows the
-  // breakdown data.js carries, so page and board.json are the same
-  // arithmetic. Expected value = launch value x launch odds.
+  // modest growth, capped maturity, then two-stage launch odds: the
+  // category's smoothed token share as the log-odds offset, plus 0.23 per
+  // SD of log10 TVL. The page shows the breakdown data.js carries, so
+  // page and board.json are the same arithmetic. Expected value =
+  // launch value x launch odds.
+  function oddsOf(row) {
+    var om = DATA.odds_model || { log_tvl_coef: 0.23, tvl_mean_log10: 7.7021, tvl_sd_log10: 0.7851 };
+    var base = (DATA.odds_base || {})[row.category || 'Other'];
+    if (base === undefined || base === null) base = 0.549;
+    var logit = Math.log(base / (1 - base));
+    var z = (Math.log10(Math.max(1, row.tvl_usd)) - om.tvl_mean_log10) / om.tvl_sd_log10;
+    var p = 1 / (1 + Math.exp(-(logit + om.log_tvl_coef * z)));
+    return Math.round(p * 1000) / 1000;
+  }
   function impliedOf(row, model) {
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
     var growthMult = 1 + (growth / 100) * model.growth_weight;
@@ -39,7 +50,7 @@
     if (row.age_days !== null && row.age_days !== undefined) maturity = row.age_days < 365 ? 1.2 : row.age_days < 730 ? 1.1 : 0.85;
     var base = Math.exp(model.log_intercept) * Math.pow(Math.max(1, row.tvl_usd), model.log_tvl_exponent);
     var launch = Math.max(1, Math.min(model.implied_cap_usd, Math.round(base * row.category_multiplier * growthMult * maturity)));
-    return Math.max(1, Math.round(launch * row.launch_odds));
+    return Math.max(1, Math.round(launch * oddsOf(row)));
   }
   function launchOf(row, model) {
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
@@ -142,7 +153,7 @@
     var hold = holdDaysFor(p.age_days);
     var pct = Math.round(odds * 100);
     var call;
-    if (odds < 0.3) call = 'Long shot: only about ' + pct + '% of protocols in this category ever launched a token, so a launch here would surprise the record.';
+    if (odds < 0.3) call = 'Long shot: launch odds of only about ' + pct + '%, so a launch here would surprise the record.';
     else if (gasTotal >= 40) call = 'Dear on ' + chain + ': the gas alone runs to about $' + gasTotal + ', so only farm if the ticket is worth that to you.';
     else if (odds >= 0.6) call = 'Cheap ticket: about $' + gasTotal + ' of gas for an expected launch value of $' + expectedValue.toLocaleString('en-US') + ' at ' + pct + '% launch odds.';
     else call = 'A middle ticket: about $' + gasTotal + ' of gas for an expected launch value of $' + expectedValue.toLocaleString('en-US') + ' at ' + pct + '% launch odds.';
@@ -233,7 +244,7 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: 'Pre-token protocols, ranked by what a launch would be worth' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. This board ranks all ' + DATA.board_size + ' rankable pre-token protocols, watchlist and below the floor alike. ' + DATA.excluded_size + ' pre-token protocols are excluded from the ranking by the watchlist rule itself, because they are bridged, wrapped or staked products of a token that already trades, and they are listed separately with the reason each one was set aside. Rank is by expected value: launch value x launch odds, where the odds are the share of protocols in the category that ever launched a token. Expected value is a model, not a price and not a promise of a token.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. This board ranks all ' + DATA.board_size + ' rankable pre-token protocols, watchlist and below the floor alike. ' + DATA.excluded_size + ' pre-token protocols are excluded from the ranking by the watchlist rule itself, because they are bridged, wrapped or staked products of a token that already trades, and they are listed separately with the reason each one was set aside. Rank is by expected value: launch value x launch odds, where the odds start from the share of protocols in the category that ever launched a token and are adjusted by the protocol\'s TVL. Expected value is a model, not a price and not a promise of a token.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
@@ -399,10 +410,12 @@
 
   function validationStrip() {
     var v = DATA.validation;
+    var oc = v.odds_cv || { baseline_logloss: 0.6423, baseline_auc: 0.6455, twostage_logloss: 0.6377, twostage_auc: 0.6641, age_logloss: 0.5967, age_auc: 0.7431 };
     var alts = (v.alternatives || []).map(function (a) { return a.name + ' x' + a.multiple.toFixed(2); }).join(', ');
+    var vtests = (v.value_tests || []).map(function (a) { return a.name + ' x' + a.multiple.toFixed(2); }).join(', ');
     return el('section', { class: 'panel valid' },
       el('h2', { text: 'Held out, not in-sample' }),
-      el('p', { class: 'sub', text: 'Leave-one-out median error x' + v.loo_multiple.toFixed(2) + ' (median absolute log error ' + v.loo_median_abs_log_error + '), 5-fold x' + v.fivefold_multiple.toFixed(2) + ' on ' + v.n_traded + ' traded protocols. Fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + ': the slope is stable, the intercept moves with it. Bootstrap 90% band on the fit itself: x' + v.bootstrap_band_multiple.toFixed(2) + ' at median TVL. No alternative beat the log-log fit held out: ' + alts + '. Launch odds by category run 21% (Risk Curators) to 76% (Lending).' })
+      el('p', { class: 'sub', text: 'Value fit: leave-one-out median error x' + v.loo_multiple.toFixed(2) + ' (median absolute log error ' + v.loo_median_abs_log_error + '), 5-fold x' + v.fivefold_multiple.toFixed(2) + ' on ' + v.n_traded + ' traded protocols. Fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + ': the slope is stable, the intercept moves with it. Bootstrap 90% band on the fit itself: x' + v.bootstrap_band_multiple.toFixed(2) + ' at median TVL. No alternative beat the log-log fit held out: ' + alts + '; re-tested for v4: ' + vtests + '. Launch odds, 5-fold CV on all 758 protocols: category-only log loss ' + oc.baseline_logloss + ', AUC ' + oc.baseline_auc + '; two-stage (category share + TVL) log loss ' + oc.twostage_logloss + ', AUC ' + oc.twostage_auc + '. An age-band model scores better on that CV (log loss ' + oc.age_logloss + ', AUC ' + oc.age_auc + ') but was rejected: age wins there only because old protocols have had time to launch, and it would give a five-year tokenless protocol 77% odds, which is backwards for a forward bet.' })
     );
   }
 
@@ -477,7 +490,7 @@
       el('div', { class: 'formula' },
         'expected = launch x odds; launch = round( exp(' + m.log_intercept + ') x TVL ^ ' + m.log_tvl_exponent + ' x category x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x maturity )'
       ),
-      el('p', { class: 'sub', text: 'Fitted on the 128 traded protocols in this snapshot: log(mcap) = ' + m.log_intercept + ' + ' + m.log_tvl_exponent + ' x log(TVL), residual SD ' + m.residual_sd_log + ' log units. Held out, the fit is no tighter: leave-one-out median error x' + v.loo_multiple.toFixed(2) + ', 5-fold x' + v.fivefold_multiple.toFixed(2) + ', fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + '. That dispersion is the honest limit: a single expected value is uncertain by roughly a factor of 3-4 either way. Category multipliers are exp(mean log residual) where n >= 4 traded comps exist (Basis Trading 2.99, Canonical Bridge 2.11, RWA 1.21, Dexs 1.14, Lending 0.57, Yield 0.49, Liquid Staking 0.38, Yield Aggregator 0.34); other categories score 1.0. Canonical Bridge, Bridge and Liquid Staking multipliers are calibration only: those categories are excluded from the board. Growth barely predicts the residual (corr -0.14), so its weight is 0.30. Maturity is capped at 1.20 for protocols under a year, 1.10 for 1-2 years, 0.85 older. Median mcap/TVL falls from 0.42 at TVL $5-50M to 0.013 above $10B, which is why the fit is log-log, not linear in TVL. Launch odds are the category token share in this snapshot, smoothed toward the overall 54.9% with alpha 10: highest ' + odds + '. Age is not used for odds: the token share rises with age because it is cumulative, and a protocol that has had years to launch and still has not is a worse forward bet, not a better one. The board applies the watchlist exclusion to every row: no bridged, wrapped, staked or exchange product is ranked, whatever its TVL. Each farm plan ends with a costed net verdict: total gas across 8 transactions against the expected launch value, with the warning that your share of any launch is unknown.' })
+      el('p', { class: 'sub', text: 'Fitted on the 128 traded protocols in this snapshot: log(mcap) = ' + m.log_intercept + ' + ' + m.log_tvl_exponent + ' x log(TVL), residual SD ' + m.residual_sd_log + ' log units. Held out, the fit is no tighter: leave-one-out median error x' + v.loo_multiple.toFixed(2) + ', 5-fold x' + v.fivefold_multiple.toFixed(2) + ', fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + '. That dispersion is the honest limit: a single expected value is uncertain by roughly a factor of 3-4 either way. Category multipliers are exp(mean log residual) where n >= 4 traded comps exist (Basis Trading 2.99, Canonical Bridge 2.11, RWA 1.21, Dexs 1.14, Lending 0.57, Yield 0.49, Liquid Staking 0.38, Yield Aggregator 0.34); other categories score 1.0. Canonical Bridge, Bridge and Liquid Staking multipliers are calibration only: those categories are excluded from the board. Growth barely predicts the residual (corr -0.14), so its weight is 0.30. Maturity is capped at 1.20 for protocols under a year, 1.10 for 1-2 years, 0.85 older. Median mcap/TVL falls from 0.42 at TVL $5-50M to 0.013 above $10B, which is why the fit is log-log, not linear in TVL. Launch odds are two-stage: the category token share in this snapshot, smoothed toward the overall 54.9% with alpha 10, as the log-odds offset, plus 0.23 per SD of log10 TVL (fitted on all 758 protocols; 5-fold CV log loss 0.638 vs 0.642 for category-only, AUC 0.664 vs 0.646). Highest base shares: ' + odds + '. Age is not used for odds: the token share rises with age because it is cumulative, and a protocol that has had years to launch and still has not is a worse forward bet, not a better one; an age-band model wins the cross-sectional CV (log loss 0.597, AUC 0.743) on that cumulative signal alone, and was rejected for that reason. The board applies the watchlist exclusion to every row: no bridged, wrapped, staked or exchange product is ranked, whatever its TVL. Each farm plan ends with a costed net verdict: total gas across 8 transactions against the expected launch value, with the warning that your share of any launch is unknown.' })
     );
   }
 
@@ -510,10 +523,10 @@
         el('div', null, el('span', { text: 'Growth factor (' + fmtPct(row.change_7d) + ')' }), el('b', { class: 'num', text: 'x' + row.growth_multiplier })),
         el('div', null, el('span', { text: 'Maturity factor (' + fmtAge(row.age_days) + ')' }), el('b', { class: 'num', text: 'x' + row.maturity_multiplier })),
         el('div', null, el('span', { text: 'Launch value (if it launches)' }), el('b', { class: 'num', text: fmtUsd(row.launch_value_usd) })),
-        el('div', null, el('span', { text: 'Launch odds (' + (row.category || 'none') + ' token share)' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '%' })),
+        el('div', null, el('span', { text: 'Launch odds (category share + TVL)' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '%' })),
         el('div', null, el('span', { text: 'Expected value = launch x odds' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
-      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (diff <= 1 ? ', the same number board.json carries (a $1 tie-break at most).' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price, and it records no token. Launch odds are the smoothed token share of this category in the snapshot; your share of any launch is unknown.' })
+      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (diff <= 1 ? ', the same number board.json carries (a $1 tie-break at most).' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price, and it records no token. Launch odds are the category share smoothed toward the overall rate, adjusted by this protocol\'s TVL (+0.23 log-odds per SD of log10 TVL); your share of any launch is unknown.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm plan' }),
