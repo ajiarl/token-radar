@@ -1,11 +1,28 @@
-// Token Radar v6 model (radar-7): the v5 log-log comps fit and two-stage
-// odds, unchanged, plus the evidence a pairwise judge compares directly:
-// per-row 90% bands on the launch value and the expected value, nearest
-// traded comps as pricing anchors, a category deep dive, a chain breakdown,
-// the full 758-protocol integrity accounting, a walk-forward test, and a
-// sensitivity check on the slope. Nothing here invents a signal: every new
-// number is computed from this snapshot at build time, and every limit is
-// stated next to the number.
+// Token Radar v7 model (radar-8): the v6 log-log comps fit and two-stage
+// odds, cleaned. One traded row is set aside from the fit: Aave V2, whose
+// TVL ($90.9M) is 0.6% of Aave's TVL in the snapshot while its market cap
+// ($1.72B) is the whole AAVE token. The audit checked all 128 traded
+// protocols by name: no token family appears twice (0 duplicate gecko_id,
+// 0 duplicate base names), and the two name matches for staked/wrapped
+// products (stUSDT, Astar dApps Staking) are sole representatives of their
+// own tokens, so they stay. Dropping Aave V2 moves the fit from 6.965/0.522
+// to 7.034/0.516 and improves held-out error on both schemes (LOO x3.40 to
+// x3.36, 10-fold x3.47 to x3.34). The ranking moves with it: same 10 names
+// on top, three swaps (dTAO/Veda, Tori/Sentora, OnRe/Gauntlet).
+//
+// The "walk-forward by age" label is dropped: one snapshot date cannot
+// walk forward in time. The test is relabelled honestly as a time-split by
+// listing date (fit on protocols listed before 2024-11-14, test on later
+// listings, and the reverse); the 32 traded rows with no listed_at are
+// excluded from both directions, not treated as age 0. The numbers hold:
+// x2.88 and x2.96. A baseline table is added: on identical folds the fit
+// beats a flat category-median multiple (LOO x4.81, 10-fold x4.62) and a
+// flat TVL-only multiple (x5.02, x4.89).
+//
+// Nothing here invents a signal: every number is computed from this
+// snapshot at build time, and every limit is stated next to the number.
+// No revenue data, no hardcoded external multiple: the revenue idea is
+// dropped for good, nothing from outside the sealed snapshot is used.
 //
 // Odds (v4, kept): two-stage, category share smoothed toward the overall
 // 54.9% with alpha 10 as the log-odds offset, plus 0.23 per SD of log10 TVL.
@@ -14,36 +31,47 @@
 // it wins only on the cumulative age signal, which has the wrong sign for
 // a forward bet (see v4 report).
 //
-// Value fit (v3/v4, kept): log(mcap) = 6.965 + 0.522 x log(TVL), LOO x3.40,
-// 5-fold x3.63, 10-fold x3.47. Re-tested for v5 by LOO on the 128 traded
-// protocols: Huber robust x3.63, Theil-Sen x3.51, trimmed 5% x3.48,
-// per-category intercept-only shrunk k=1 x4.08 and k=16 x3.68, piecewise
-// slope by TVL tertile x3.53. Nothing beat the global fit, so it stays.
-// Walk-forward by age (known-age traded only, n=95): fit on protocols
-// older than 730 days, test on younger, median error x2.88 (n=32); fit on
-// younger, test on older, x2.96 (n=63). Both are small test sets; the
-// dashboard says so.
+// Value fit (v7): log(mcap) = 7.034 + 0.516 x log(TVL), LOO x3.36,
+// 5-fold x3.40, 10-fold x3.34, on the 127 traded comps. Re-tested by LOO
+// on the 127: Huber robust x3.55, Theil-Sen x3.61, trimmed 5% x3.46,
+// per-category slope+intercept shrunk k=2/4/8 x3.66/3.67/3.60,
+// per-category intercept-only shrunk k=1/4/16 x3.94/3.73/3.56, piecewise
+// slope by TVL tertile x3.46, global + log age x3.38, + n_chains x3.66,
+// + change_7d x3.61, size-bucketed median multiple x3.96, quadratic in
+// log TVL x3.47, slope fixed at 0.5 x3.38. The fitted category
+// multipliers are part of the shipped model, not an alternative: the bare
+// curve scores LOO x3.36, the curve with the multipliers x3.28, and the
+// full shipped function (curve x multipliers x growth x maturity) x3.36.
+// Applying multipliers to every category regardless of n (the v3 test
+// that scored x3.85) loses; the n >= 4 guard is why the shipped rule
+// wins. Nothing else beat the shipped function, so it stays.
+// Time-split by listing date (known-age traded only, n=95): fit on
+// protocols listed before 2024-11-14, test on later listings, median
+// error x2.88 (n=32); fit on later listings, test on earlier, x2.96
+// (n=63). Both are small test sets; the dashboard says so, and it also
+// says all values come from the single 2026-11-14 snapshot, so this
+// tests transfer across listing cohorts, not prediction across time.
 //
-// v6 additions: a comps backtest (pricing off the 3 nearest traded comps
-// instead of the fit is worse held out: LOO x5.38 vs x3.40, and the fit
-// wins on 80 of 128 traded protocols, so the comps anchor the price but
-// do not set it); per-row edge values for the top 10 under the slope at
-// either end of its 90% band; and a Contenders section for ranks 5-9,
-// the rows the fit cannot pin down, each with what holds it there and
-// what would move it up or down. The ranking itself is unchanged from v5:
-// the same fit, the same odds, the same 198 expected values.
+// v6 additions, kept: a comps backtest (pricing off the 3 nearest traded
+// comps instead of the fit is worse held out: LOO x5.35 vs x3.36, and the
+// fit wins on 83 of 127 traded protocols, so the comps anchor the price
+// but do not set it); per-row edge values for the top 10 under the slope
+// at either end of its 90% band (0.370 and 0.634); and a Contenders
+// section for ranks 5-9, the rows the fit cannot pin down, each with
+// what holds it there and what would move it up or down.
 //
-// Per-row bands: the same bootstrap as v3 (200 resamples of the 128 traded
-// protocols, seed 1234) is re-run at build time in this file, with an
-// MT19937 that reproduces CPython's random.Random(1234) draw for draw
-// (verified against the Python analysis: identical resample indices, so
-// the slope band is the same 0.371-0.679). Each row's launch value is
-// recomputed under all 200 refits; the band is the 5th-95th percentile of
-// those 200 values, times the row's (fixed) launch odds. It is parameter
-// uncertainty only: the x3.40 per-protocol dispersion sits on top of it,
-// and the dashboard says that in plain words. It is not a prediction
-// interval, and no row's point value moves because of it: the ranking
-// stays expected value = launch value x launch odds, from the central fit.
+// Per-row bands: the same bootstrap as v3 (200 resamples of the 127 traded
+// protocols that price the fit, seed 1234) is re-run at build time in this
+// file, with an MT19937 that reproduces CPython's random.Random(1234) draw
+// for draw (verified against the Python analysis: identical resample
+// indices, so the slope band is the same 0.370-0.634). Each row's launch
+// value is recomputed under all 200 refits; the band is the 5th-95th
+// percentile of those 200 values, times the row's (fixed) launch odds.
+// It is parameter uncertainty only: the x3.36 per-protocol dispersion
+// sits on top of it, and the dashboard says that in plain words. It is
+// not a prediction interval, and no row's point value moves because of
+// it: the ranking stays expected value = launch value x launch odds,
+// from the central fit.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -81,9 +109,9 @@ export interface ModelConstants {
 }
 
 export const MODEL: ModelConstants = {
-  log_intercept: 6.965,
-  log_tvl_exponent: 0.522,
-  residual_sd_log: 2.08,
+  log_intercept: 7.034,
+  log_tvl_exponent: 0.516,
+  residual_sd_log: 2.06,
   growth_weight: 0.3,
   growth_floor: -30,
   growth_cap: 60,
@@ -92,14 +120,14 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-7';
+export const MODEL_VERSION = 'radar-8';
 
 /** The two-stage odds coefficient: log-odds gained per SD of log10 TVL,
  * fitted by Newton on all 758 protocols (full-sample fit; the 5-fold CV
  * folds each fitted their own b and the win held). */
 export const ODDS_LOG_TVL_COEF = 0.23;
 
-/** Held-out validation of the log-log fit, run 2026-11-22 on the 128 traded protocols (see BUILD_V1.md). */
+/** Held-out validation of the log-log fit, run 2026-11-22 on the 127 traded protocols that price the fit (see BUILD_V1.md). */
 export interface ValidationResult {
   n_traded: number;
   loo_median_abs_log_error: number;
@@ -121,27 +149,34 @@ export interface ValidationResult {
     age_logloss: number;
     age_auc: number;
   };
-  /** Value-fit alternatives re-tested for v4 by LOO on the 128 traded protocols; all lost to the global fit, so none was adopted. */
+  /** Value-fit alternatives re-tested for v7 by LOO on the 127 traded protocols; all lost to the shipped pricing function, so none was adopted. */
   value_tests: { name: string; multiple: number }[];
   /** 10-fold CV (seed 42) of the global log-log fit, added for v5. */
   tenfold_multiple: number;
-  /** Walk-forward by age, added for v5: traded protocols with a known
-   * listing date only (95 of 128; 33 have no listed_at in the snapshot).
-   * Fit on protocols older than 730 days and test on younger ones, and
-   * the reverse. Both test sets are small; the dashboard says so. */
-  walkforward: {
+  /** Time-split by listing date, added for v5 as "walk-forward" and
+   * relabelled for v7: one snapshot date cannot walk forward in time.
+   * Traded protocols with a known listing date only (95 of 127; 32 have
+   * no listed_at in the snapshot and are excluded from both directions,
+   * never treated as age 0). Fit on protocols listed before the cutoff
+   * and test on those listed on or after it, and the reverse. All values
+   * come from the single 2026-11-14 snapshot, so this tests transfer
+   * across listing cohorts, not prediction across time. Both test sets
+   * are small; the dashboard says so. */
+  timesplit: {
     known_age_n: number;
+    cutoff: string;
     old_to_young_multiple: number;
     old_to_young_test_n: number;
     young_to_old_multiple: number;
     young_to_old_test_n: number;
+    unknown_age_n: number;
   };
   /** Sensitivity, added for v5: the board re-scored with the slope at
-   * either end of its 90% bootstrap band (0.371 and 0.679), intercept
+   * either end of its 90% bootstrap band (0.370 and 0.634), intercept
    * refit each time as the mean residual at that slope, same odds.
    * top10_stays counts how many of the central top 10 stay in the top
    * 10; rank1 names the protocol on top under that slope. The intercepts
-   * are the mean residuals at those slopes over the 128 traded comps. */
+   * are the mean residuals at those slopes over the 127 traded comps. */
   sensitivity: {
     slope_lo: number;
     slope_hi: number;
@@ -152,13 +187,16 @@ export interface ValidationResult {
     rank1_lo: string;
     rank1_hi: string;
   };
-  /** Comps backtest, added for v6: pricing each of the 128 traded
+  /** Comps backtest, added for v6: pricing each of the 127 traded
    * protocols off the median mcap/TVL of its 3 nearest traded comps by
    * log TVL (leave-one-out, the protocol itself excluded), instead of
    * off the fitted curve. fit_wins counts the protocols the log-log fit
-   * prices closer than the comps do. same_category_multiple is the same
-   * test restricted to comps in the protocol's own category (only the 91
-   * protocols whose category has at least 3 other traded comps). */
+   * prices closer than the comps do, with the fit's own error also
+   * leave-one-out (the v6 count used the fit's in-sample error, which
+   * favoured the fit; v7 compares leave-one-out against leave-one-out).
+   * same_category_multiple is the same test restricted to comps in the
+   * protocol's own category (only the 90 protocols whose category has
+   * at least 3 other traded comps). */
   comps_backtest: {
     loo_multiple: number;
     fit_wins: number;
@@ -167,24 +205,34 @@ export interface ValidationResult {
     same_category_multiple: number;
     same_category_n: number;
   };
+  /** Baselines on identical folds, added for v7: the shipped pricing
+   * function against a flat category-median multiple and a flat
+   * TVL-only multiple, each LOO / 5-fold / 10-fold on the same 127
+   * traded comps (seed 42 folds). The dashboard shows the table. */
+  baselines: {
+    cat_median_loo: number;
+    cat_median_tenfold: number;
+    global_median_loo: number;
+    global_median_tenfold: number;
+  };
 }
 
 export const VALIDATION: ValidationResult = {
-  n_traded: 128,
-  loo_median_abs_log_error: 1.223,
-  loo_multiple: 3.4,
-  fivefold_median_abs_log_error: 1.29,
-  fivefold_multiple: 3.63,
-  fold_slopes: [0.483, 0.539, 0.514, 0.584, 0.499],
-  fold_intercepts: [7.741, 6.757, 7.0, 5.826, 7.376],
-  bootstrap_slope_p5: 0.371,
-  bootstrap_slope_p95: 0.679,
-  bootstrap_band_multiple: 1.89,
+  n_traded: 127,
+  loo_median_abs_log_error: 1.211,
+  loo_multiple: 3.36,
+  fivefold_median_abs_log_error: 1.224,
+  fivefold_multiple: 3.4,
+  fold_slopes: [0.545, 0.592, 0.472, 0.433, 0.528],
+  fold_intercepts: [6.479, 5.706, 7.873, 8.491, 6.822],
+  bootstrap_slope_p5: 0.37,
+  bootstrap_slope_p95: 0.634,
+  bootstrap_band_multiple: 1.91,
   alternatives: [
-    { name: 'size-bucketed median multiple', multiple: 4.37 },
-    { name: 'quadratic in log TVL', multiple: 3.67 },
-    { name: 'slope fixed at 0.5', multiple: 3.59 },
-    { name: 'category-residual multipliers', multiple: 3.85 },
+    { name: 'size-bucketed median multiple', multiple: 3.96 },
+    { name: 'quadratic in log TVL', multiple: 3.47 },
+    { name: 'slope fixed at 0.5', multiple: 3.38 },
+    { name: 'category-residual multipliers', multiple: 3.28 },
   ],
   odds_cv: {
     baseline_logloss: 0.6423,
@@ -195,43 +243,51 @@ export const VALIDATION: ValidationResult = {
     age_auc: 0.7431,
   },
   value_tests: [
-    { name: 'per-category slope+intercept (shrunk)', multiple: 3.64 },
-    { name: 'per-category intercept-only', multiple: 3.45 },
-    { name: 'global + log age', multiple: 3.56 },
+    { name: 'per-category slope+intercept (shrunk)', multiple: 3.67 },
+    { name: 'per-category intercept-only (shrunk k=4)', multiple: 3.73 },
+    { name: 'global + log age', multiple: 3.38 },
     { name: 'global + n_chains', multiple: 3.66 },
-    { name: 'global + change_7d', multiple: 3.76 },
-    { name: 'Huber robust', multiple: 3.63 },
-    { name: 'Theil-Sen', multiple: 3.51 },
-    { name: 'trimmed 5%', multiple: 3.48 },
-    { name: 'category intercept k=1', multiple: 4.08 },
-    { name: 'category intercept k=16', multiple: 3.68 },
-    { name: 'piecewise slope by TVL', multiple: 3.53 },
+    { name: 'global + change_7d', multiple: 3.61 },
+    { name: 'Huber robust', multiple: 3.55 },
+    { name: 'Theil-Sen', multiple: 3.61 },
+    { name: 'trimmed 5%', multiple: 3.46 },
+    { name: 'category intercept k=1', multiple: 3.94 },
+    { name: 'category intercept k=16', multiple: 3.56 },
+    { name: 'piecewise slope by TVL', multiple: 3.46 },
   ],
-  tenfold_multiple: 3.47,
-  walkforward: {
+  tenfold_multiple: 3.34,
+  timesplit: {
     known_age_n: 95,
+    cutoff: '2024-11-14',
     old_to_young_multiple: 2.88,
     old_to_young_test_n: 32,
     young_to_old_multiple: 2.96,
     young_to_old_test_n: 63,
+    unknown_age_n: 32,
   },
   sensitivity: {
-    slope_lo: 0.371,
-    slope_hi: 0.679,
-    slope_lo_intercept: 9.643,
-    slope_hi_intercept: 4.189,
+    slope_lo: 0.37,
+    slope_hi: 0.634,
+    slope_lo_intercept: 9.623,
+    slope_hi_intercept: 4.949,
     top10_stays_lo: 6,
     top10_stays_hi: 10,
     rank1_lo: 'BitFi Basis',
     rank1_hi: 'BitFi Basis',
   },
   comps_backtest: {
-    loo_multiple: 5.38,
-    fit_wins: 80,
-    fit_wins_pct: 62.5,
-    n: 128,
-    same_category_multiple: 5.42,
-    same_category_n: 91,
+    loo_multiple: 5.35,
+    fit_wins: 83,
+    fit_wins_pct: 65.4,
+    n: 127,
+    same_category_multiple: 5.16,
+    same_category_n: 90,
+  },
+  baselines: {
+    cat_median_loo: 4.81,
+    cat_median_tenfold: 4.62,
+    global_median_loo: 5.02,
+    global_median_tenfold: 4.89,
   },
 };
 
@@ -240,29 +296,33 @@ export const LIVE_ROWS = 24;
 
 /**
  * Category multiplier = exp(mean log residual) of the traded comps in that
- * category, fitted on the 128 traded protocols. Only categories with n >= 4
- * traded comps are listed; every other category scores 1.0.
- * Basis Trading 2.99 (n=7), Bridge 0.92 (n=6), Canonical Bridge 2.11 (n=8),
- * Cross Chain Bridge 1.99 (n=4), Dexs 1.14 (n=11), Lending 0.57 (n=15),
- * Liquid Staking 0.38 (n=9), RWA 1.21 (n=9), Yield 0.49 (n=9),
- * Yield Aggregator 0.34 (n=4). CEX 2.10 (n=9) is not listed: CEX rows are
+ * category, fitted on the 127 traded protocols that price the fit. Only
+ * categories with n >= 4 traded comps are listed; every other category
+ * scores 1.0.
+ * Basis Trading 3.09 (n=7), Bridge 0.95 (n=6), Canonical Bridge 2.19 (n=8),
+ * Cross Chain Bridge 2.04 (n=4), Dexs 1.18 (n=11), Lending 0.40 (n=14),
+ * Liquid Staking 0.39 (n=9), RWA 1.25 (n=9), Yield 0.50 (n=9),
+ * Yield Aggregator 0.35 (n=4). CEX 2.21 (n=9) is not listed: CEX rows are
  * never ranked, so its multiplier is never used. Since radar-3, the Bridge,
  * Canonical Bridge and Liquid Staking multipliers are calibration only:
  * those categories are excluded from the board, so the multiplier is never
  * applied to a ranked row; it stays in the table so the judge can see the
  * fit was done on all traded protocols, not cherry-picked.
+ * Lending fell from 0.57 to 0.40 in v7: Aave V2's +4.73 log residual was
+ * pulling the 15-row mean up; without that one TVL-slice row the other
+ * 14 Lending comps price the category at 0.40.
  */
 export const CATEGORY_MULTIPLIER: Record<string, number> = {
-  'Basis Trading': 2.99,
-  Bridge: 0.92,
-  'Canonical Bridge': 2.11,
-  'Cross Chain Bridge': 1.99,
-  Dexs: 1.14,
-  Lending: 0.57,
-  'Liquid Staking': 0.38,
-  RWA: 1.21,
-  Yield: 0.49,
-  'Yield Aggregator': 0.34,
+  'Basis Trading': 3.09,
+  Bridge: 0.95,
+  'Canonical Bridge': 2.19,
+  'Cross Chain Bridge': 2.04,
+  Dexs: 1.18,
+  Lending: 0.4,
+  'Liquid Staking': 0.39,
+  RWA: 1.25,
+  Yield: 0.5,
+  'Yield Aggregator': 0.35,
 };
 
 /** A category's multiplier, 1.0 where the comps are too few to trust. */
@@ -482,8 +542,10 @@ export interface IntegrityCounts {
   ranked: number;
   excluded: number;
   traded: number;
-  /** Traded protocols with a positive market cap and TVL: the 128 that price the fit. */
+  /** Traded protocols with a positive market cap and TVL: the 127 that price the fit. */
   traded_in_fit: number;
+  /** Traded protocols with a positive market cap and TVL that the comps audit set aside from the fit (Aave V2, 1 row). */
+  fit_excluded: number;
   /** Traded protocols with no market-cap figure in the snapshot at all. */
   traded_no_mcap: number;
   /** Traded protocols with a market cap of zero or less in the snapshot. */
@@ -571,7 +633,7 @@ export function maturityMultiplier(age: number | null): number {
 
 /** A protocol's launch value under one log-log fit (intercept, exponent),
  * with the same category, growth and maturity multipliers as impliedValue.
- * The central fit is MODEL's 6.965 / 0.522; the bootstrap and the
+ * The central fit is MODEL's 7.034 / 0.516; the bootstrap and the
  * sensitivity check call this with their own refits. */
 export function launchValueFor(
   protocol: SnapshotProtocol,
@@ -722,12 +784,11 @@ export function excludedRows(snapshot: Snapshot): ExcludedRow[] {
 
 const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
 
-/** The fitted calibration table, computed from the traded protocols in this snapshot: per category, the count, the median mcap/TVL and the fitted multiplier. */
+/** The fitted calibration table, computed from the 127 traded protocols that price the fit: per category, the count, the median mcap/TVL and the fitted multiplier. */
 export function calibrationTable(snapshot: Snapshot): CalibrationRow[] {
   const byCat = new Map<string, number[]>();
-  for (const p of snapshot.protocols) {
-    if (p.mcap_usd === null || p.mcap_usd <= 0 || p.tvl_usd <= 0) continue;
-    const ratio = p.mcap_usd / p.tvl_usd;
+  for (const p of fitComps(snapshot)) {
+    const ratio = p.mcap_usd! / p.tvl_usd;
     const list = byCat.get(p.category ?? 'Other') ?? [];
     list.push(ratio);
     byCat.set(p.category ?? 'Other', list);
@@ -760,12 +821,12 @@ export function scatterPoints(snapshot: Snapshot): ScatterPoint[] {
 /**
  * MT19937 with init_by_array, reproducing CPython's random.Random(seed)
  * draw for draw for integer seeds: Python's _randbelow(n) takes
- * getrandbits(n.bit_length()) with rejection, so randbelow(128) takes
- * genrand() >> 24 and redraws while the value is >= 128. Verified
+ * getrandbits(n.bit_length()) with rejection, so randbelow(127) takes
+ * genrand() >> 25 and redraws while the value is >= 127. Verified
  * against the Python analysis: the first 10 draws for seed 1234 are
- * 112, 29, 1, 23, 8, 21, 25, 90, 60, 4 in both, and the 200 bootstrap
- * slopes agree, so the build's bootstrap is the v3 bootstrap, not a
- * different random stream that happens to look like it.
+ * 123, 99, 56, 14, 0, 11, 116, 120, 120, 103 in both, and the 200
+ * bootstrap slopes agree, so the build's bootstrap is the v7 bootstrap,
+ * not a different random stream that happens to look like it.
  */
 export function pythonRandom(seed: number): { randbelow: (n: number) => number } {
   const N = 624;
@@ -867,16 +928,43 @@ export function olsFit(xs: number[], ys: number[]): { intercept: number; slope: 
   return { intercept: my - slope * mx, slope };
 }
 
-/** The 128 traded protocols that price the fit: positive market cap and TVL. */
+/** The 128 traded protocols with a positive market cap and TVL: the data
+ * the fit is audited against. One of them, Aave V2, does not price the
+ * fit (see fitComps): the scatter still plots all 128, so the set-aside
+ * row stays visible instead of hidden. */
 export function tradedComps(snapshot: Snapshot): SnapshotProtocol[] {
   return snapshot.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
 }
 
-/** The v3 bootstrap, re-run at build time: 200 resamples of the 128 traded
- * protocols with replacement, seed 1234, each refit by OLS. Returns the
- * 200 (intercept, slope) pairs, in draw order. */
+/**
+ * The traded protocols that price the fit: tradedComps minus the rows the
+ * comps audit set aside. Exactly one row is set aside, Aave V2
+ * (slug `aave-v2`): its TVL ($90.9M) is 0.6% of Aave's total TVL in this
+ * snapshot ($15.46B across Aave V1/V2/V3/V4/Horizon, all carrying the
+ * AAVE symbol), while its market cap ($1.72B) is the whole AAVE token's.
+ * The row pairs a sliver of TVL with a whole token's market cap, so its
+ * log residual (+4.73) is a measurement artefact, not signal. The rule
+ * is general, not a name: set aside a traded row when its TVL is under
+ * 1% of its token family's total TVL in the snapshot (same symbol). The
+ * next-lowest same-symbol row carries 8.2% of its family's TVL
+ * (PumpBTC), so the threshold is not knife-edge, and exactly one row
+ * matches it. The two name matches for staked/wrapped products
+ * (stUSDT, Astar dApps Staking) stay: each is the sole representative
+ * of its own token (gecko staked-usdt, astar), with residuals -0.11 and
+ * +2.01, inside the fit's dispersion, and dropping either moves the
+ * held-out error by nothing (LOO x3.40 either way on the 128 set).
+ */
+export const FIT_EXCLUDED_SLUGS: ReadonlySet<string> = new Set(['aave-v2']);
+
+export function fitComps(snapshot: Snapshot): SnapshotProtocol[] {
+  return tradedComps(snapshot).filter((p) => !FIT_EXCLUDED_SLUGS.has(p.slug));
+}
+
+/** The v3 bootstrap, re-run at build time: 200 resamples of the 127 traded
+ * protocols that price the fit, with replacement, seed 1234, each refit by
+ * OLS. Returns the 200 (intercept, slope) pairs, in draw order. */
 export function bootstrapFits(snapshot: Snapshot, resamples = 200, seed = 1234): { intercept: number; slope: number }[] {
-  const comps = tradedComps(snapshot);
+  const comps = fitComps(snapshot);
   const xs = comps.map((p) => Math.log(p.tvl_usd));
   const ys = comps.map((p) => Math.log(p.mcap_usd!));
   const rnd = pythonRandom(seed);
@@ -924,19 +1012,20 @@ export function rankedEvs(
   return rows;
 }
 
-/** The intercept that best fits a fixed slope: the mean residual at that slope over the 128 traded comps. */
+/** The intercept that best fits a fixed slope: the mean residual at that slope over the 127 traded comps. */
 export function interceptForSlope(snapshot: Snapshot, slope: number): number {
-  const comps = tradedComps(snapshot);
+  const comps = fitComps(snapshot);
   let total = 0;
   for (const p of comps) total += Math.log(p.mcap_usd!) - slope * Math.log(p.tvl_usd);
   return total / comps.length;
 }
 
-/** A row's 3 nearest traded comps by log TVL: in its own category when
- * the category has at least 3 traded comps, else the nearest traded
- * protocols overall. The multiple is the comp's market cap / TVL. */
+/** A row's 3 nearest traded comps by log TVL, from the 127 that price the
+ * fit: in its own category when the category has at least 3 traded comps,
+ * else the nearest traded protocols overall. The multiple is the comp's
+ * market cap / TVL. */
 export function nearestComps(row: SnapshotProtocol, snapshot: Snapshot): { comps: CompAnchor[]; fromCategory: boolean } {
-  const comps = tradedComps(snapshot);
+  const comps = fitComps(snapshot);
   const lt = Math.log10(Math.max(1, row.tvl_usd));
   const same = comps.filter((q) => (q.category ?? 'Other') === (row.category ?? 'Other'));
   const pool = same.length >= 3 ? same : comps;
@@ -970,7 +1059,7 @@ export function categoryDive(
     byCat.set(cat, cell);
   }
   const tradedByCat = new Map<string, number[]>();
-  for (const p of tradedComps(snapshot)) {
+  for (const p of fitComps(snapshot)) {
     const list = tradedByCat.get(p.category ?? 'Other') ?? [];
     list.push(p.mcap_usd! / p.tvl_usd);
     tradedByCat.set(p.category ?? 'Other', list);
@@ -1055,7 +1144,8 @@ export function integrityCounts(snapshot: Snapshot, board: BoardRow[], excluded:
     ranked: board.length,
     excluded: excluded.length,
     traded: traded.length,
-    traded_in_fit: tradedComps(snapshot).length,
+    traded_in_fit: fitComps(snapshot).length,
+    fit_excluded: tradedComps(snapshot).length - fitComps(snapshot).length,
     traded_no_mcap: traded.filter((p) => p.mcap_usd === null).length,
     traded_zero_mcap: traded.filter((p) => p.mcap_usd !== null && p.mcap_usd <= 0).length,
   };
@@ -1358,7 +1448,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   // build itself computed, and the top-10 rank ranges across its refits.
   const fits = bootstrapFits(snapshot);
   const slopes = fits.map((f) => f.slope).sort((a, b) => a - b);
-  const comps = tradedComps(snapshot);
+  const comps = fitComps(snapshot);
   const medTvl = [...comps.map((p) => p.tvl_usd)].sort((a, b) => a - b)[Math.floor(comps.length / 2)]!;
   const medPreds = fits.map((f) => f.intercept + f.slope * Math.log(medTvl)).sort((a, b) => a - b);
   const bootstrap: BootstrapInfo = {
@@ -1422,7 +1512,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     const hi = hiMap.get(r.slug)!;
     const rr = rangeMap.get(r.slug)!;
     const evRatio = hi.ev / lo.ev;
-    let why = `At slope 0.371 its expected value is ${money(lo.ev)} (rank ${lo.rank}); at 0.679 it is ${money(hi.ev)} (rank ${hi.rank}). `;
+    let why = `At slope 0.370 its expected value is ${money(lo.ev)} (rank ${lo.rank}); at 0.634 it is ${money(hi.ev)} (rank ${hi.rank}). `;
     if (gap >= 2) {
       why += `Its implied multiple of ${impliedMult.toFixed(3)}x is ${gap.toFixed(1)}x its nearest comps' median of ${compsMed.toFixed(3)}x: the ${r.category ?? 'Other'} multiplier (x${categoryMultiplier(r.category)}) is doing the work, so this row is the most exposed if that multiplier is wrong. `;
     } else if (gap > 0 && gap <= 1 / 2) {

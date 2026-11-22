@@ -1,4 +1,92 @@
-# Token Radar v6 build report (radar-7)
+# Token Radar v7 build report (radar-8)
+
+Built 2026-11-22, local only, on top of v6 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits (today's quota is exhausted: 5 of 5 used). v6 is already submitted (submission 01a20340-11ae-74f6-ac21-2c845d9618c0) and scored on dev at a provisional win rate of 0.941967 (20 wins, 0 losses, 20 games), slightly below v5's 0.945458. v7 is model cleanup ONLY, per the user's 19:50 WIB review: comps audit, honest time-split relabel, baseline table, revenue idea dropped for good. No layout redesign (that is the next step), no new panels beyond what the model story needs. The ranking CHANGED, but only slightly: the same 10 names in the top 10, three one-place swaps (section 5). Board.json is NOT byte-identical to v6 (sha256 9bddcfefc61fe957300eb46c84c870b7f7781abb13e6e8886d69e1aebec0dc74, v6 was 8273320982b1d49294f1fe5078e32762fa1d0f80888b99c3b1e40bba39b3d59e).
+
+## 1. Comps audit: all 128 traded rows checked by name (scripts /tmp/v7_audit.py, /tmp/v7_tests.py, /tmp/v7_analysis.py, /tmp/v7_analysis2.py, all deterministic, snapshot only)
+
+gecko_id has zero duplicates among traded rows, so the audit is name-based. Pattern scan: wrap/stake/restake/liquid word 1 hit (Astar dApps Staking); versioned name 1 hit (Aave V2); st/w/x/e token-prefix 1 hit (stUSDT); "bridge" in name 10 hits, all bridge protocols with their own tokens (Across ACX, cBridge CELR, Synapse), not wrapped derivatives. Base-name families: 128 distinct, 0 duplicates. Same-gecko families with more than 1 row: none. Slug-first-token collision: only "yield" (Yield Basis vs Yield Yak Aggregator, different protocols and tokens).
+
+Aave V2 is the ONLY traded row whose TVL is a sliver of its token family's total: $90,919,562 of $15,463,304,114 (0.6%) across Aave V1/V2/V3/V4/Horizon, all carrying symbol AAVE, while its mcap $1,723,499,485 is the whole AAVE token. Next-lowest same-symbol row is PumpBTC at 8.2% of its family's TVL, so the rule "exclude a traded row when its TVL is under 1% of its token family's total TVL (same symbol)" matches exactly one row and is not knife-edge. Aave V2's log residual is +4.73 (actual mcap 113.55x the fit's prediction), but it is NOT the largest residual: Rain +6.53, Nexo +4.98, Bitway Earn +4.90 are larger, and xDAI Stake Bridge is -6.07; residual SD 2.08. Rain/Nexo/Bitway are not derivatives and stay: no principled snapshot-internal rule separates them, and dropping them would be outlier removal. stUSDT stays: gecko staked-usdt, sole representative of its token (USDT itself has no traded row), residual -0.11, essentially on the curve; dropping it changes LOO not at all (x3.40) and 10-fold x3.47 to x3.43 (noise). Astar dApps Staking stays: ASTR is Astar's own token, residual +2.01, inside the fit's dispersion.
+
+The 15 zero-mcap rows (mcap_usd == 0 with gecko_id/symbol present) and the 14 null-mcap rows stay out of the fit, as before; one further row has mcap_usd == -1 (AUTOfinance, gecko tokemak), so the integrity line counts 16 zero-or-less. Rule shipped in lib/model.ts as `FIT_EXCLUDED_SLUGS = new Set(['aave-v2'])` and `fitComps()` (tradedComps minus excluded, rule documented in the comment). The scatter still plots all 128, so the set-aside row is visible, not hidden. The dashboard lede carries the corrected-mistake story in one line: "Comps audit: all 128 traded protocols were checked by name; no token family appears twice, and 1 row, Aave V2, was set aside from the fit: its TVL is 0.6% of Aave's TVL while its market cap is the whole AAVE token."
+
+## 2. New fit: 7.034 / 0.516 on 127 comps
+
+| | v6 (128 comps) | v7 (127 comps) |
+| --- | --- | --- |
+| Intercept / slope | 6.965 / 0.522 | 7.034 / 0.516 |
+| Residual SD (log) | 2.08 | 2.06 |
+| LOO median error | x3.40 (median log 1.223) | x3.36 (median log 1.211) |
+| 5-fold (seed 42) | x3.63 | x3.40, slopes 0.545/0.592/0.472/0.433/0.528, intercepts 6.479/5.706/7.873/8.491/6.822 |
+| 10-fold (seed 42) | x3.47 | x3.34 |
+| Bootstrap slope 90% band (200 resamples, seed 1234) | 0.371-0.679 | 0.370-0.634 |
+| Band at median traded TVL ($31,730,814) | x1.88 | x1.91 |
+| Edge intercepts at the band ends | 9.643 / 4.189 | 9.623 / 4.949 |
+
+Category multipliers recomputed on the 127 fit (exact, then 2-decimal shipped): Basis Trading 3.09 (was 2.99), Bridge 0.95 (was 0.92), Canonical Bridge 2.19 (was 2.11), Cross Chain Bridge 2.04 (was 1.99), Dexs 1.18 (was 1.14), Lending 0.40 (was 0.57, n=14 not 15: Aave V2's +4.73 residual was pulling the 15-row mean up), Liquid Staking 0.39 (was 0.38), RWA 1.25 (was 1.21), Yield 0.50 (was 0.49), Yield Aggregator 0.35 (was 0.34), CEX 2.21 (not listed, CEX never ranked). The Lending move is the whole story of the audit in one number: one row was worth +0.17 of multiplier on its category.
+
+Alternatives re-run by LOO on the 127 set (same methods as v3/v4/v5; per-category slope+intercept shrunk implemented as per-category OLS shrunk toward the global fit by n/(n+k)): Huber robust x3.55, Theil-Sen x3.61, trimmed 5% x3.46, per-category slope+intercept shrunk k=2/4/8 x3.66/3.67/3.60, per-category intercept-only shrunk k=1 x3.94 / k=4 x3.73 / k=16 x3.56, piecewise slope by TVL tertile x3.46, global + log age x3.38, + n_chains x3.66, + change_7d x3.61, size-bucketed median multiple x3.96, quadratic in log TVL x3.47, slope fixed at 0.5 x3.38. Nothing adopted; the fit stays a single global log-log line. Note: v4's "per-category intercept-only x3.45" could not be reproduced from surviving files (unshrunk k=0 gives x4.25 on 127; a joint-dummy OLS attempt failed with a singular matrix); v7 uses the documented shrunk versions instead.
+
+## 3. Baseline table: the fit beats both flat baselines on identical folds
+
+Same folds throughout (LOO, and 10-fold with the seed-42 shuffle used for the fit):
+
+| Pricing rule | LOO | 10-fold | 5-fold |
+| --- | --- | --- | --- |
+| Log-log fit | x3.36 | x3.34 | x3.40 |
+| Flat category-median multiple | x4.81 | x4.62 | x4.98 |
+| Flat global-median multiple (TVL-only) | x5.02 | x4.89 | x4.88 |
+
+The table is in the validation strip, computed by /tmp/v7_analysis.py and stored in `VALIDATION.baselines`; the independent verifier (/tmp/v7_verify.py) recomputes all six cells from the snapshot and matches them exactly. The headline claim survives: the fit beats a flat multiple on every scheme, so the curve earns its keep.
+
+## 4. Honest labels: time-split, multipliers, comps backtest
+
+- Walk-forward relabelled. v5/v6 called the age split "walk-forward by age"; the snapshot is a single date (2026-11-14), so it cannot be a genuine walk-forward in time. It is now "time-split by listing date": cutoff 2024-11-14 (730 days before as_of); known-age traded 95, unknown listed_at 32 (was 33 on the 128 set, because Aave V2 has no listed_at); listed before the cutoff 63, listed on/after 32. Fit on pre-cutoff, test on later listings x2.88 (fit a=5.672 b=0.585); fit on later listings, test on earlier x2.96 (a=14.412 b=0.126). Numbers identical to v5's walk-forward because the split IS by listing date; the new label adds the disclosure that all values come from the single 2026-11-14 snapshot, so it tests transfer across listing cohorts, not prediction across time. The strip says so in plain words, and the 32 rows without listed_at are stated as excluded from the split.
+- Multiplier nuance, stated honestly. On the 127 set, curve x category multipliers (n>=4 guard, as shipped) scores LOO x3.28 vs plain curve x3.36, and the full shipped pricing function (curve x multipliers x growth x maturity) scores LOO x3.36. The multipliers are therefore part of the shipped model, not an alternative; the no-guard variant (multipliers for all categories regardless of n) scores LOO x4.25, which explains v3's x3.85 (v3's test had no n guard). The 0.08 log-unit edge (1.188 vs 1.211) is within noise, so the dashboard must not overclaim it: the strip says the multipliers cost nothing held out and encode real category structure, and the alternatives count dropped by one (14 alternatives, best slope fixed at 0.5 x3.38, tied with global + log age x3.38). The strip states curve alone x3.36, curve with multipliers x3.28, full shipped function x3.36.
+- Comps backtest corrected. v6 compared the fit's in-sample error against comps' LOO error, which favoured the fit. v7 uses honest LOO-vs-LOO: fit wins 83/127 (65.4%), comps-only LOO x5.35 (exact median log 1.6773), same-category x5.16 (n=90). The strip numbers changed accordingly (was 80/128, 62.5%, x5.38, x5.42 n=91).
+- Revenue dropped for good. No revenue multiples, no hardcoded external data, nothing from outside the sealed snapshot. The model header comment says so; a grep of lib/, dashboard/ and main.ts finds no revenue, fees or external data input (the only "fees" hits are a farm-plan instruction telling the user to check a vault's own fees, and a "DefiLlama index" label naming the snapshot's source, both pre-existing). The 10 snapshot fields are the only inputs.
+
+## 5. Ranking: same 10 names, three one-place swaps
+
+The cleaned fit moves every EV (all 198 change; only 32/198 rows keep the same rank) but the top 10 keeps its members:
+
+| Rank | Protocol | v6 EV | v7 EV | Change |
+| --- | --- | --- | --- | --- |
+| 1 | BitFi Basis | $48.3M | $47.7M | -1.3% |
+| 2 | USDD | $36.2M | $34.3M | -5.4% |
+| 3 | Bittensor dTAO (was 4) | $32.7M | $32.2M | -1.5% |
+| 4 | Veda (was 3) | $34.1M | $32.2M | -5.6% |
+| 5 | Tori Finance (was 6) | $30.8M | $30.6M | -0.7% |
+| 6 | Sentora Curator (was 5) | $31.0M | $29.2M | -6.0% |
+| 7 | Steakhouse Financial | $30.6M | $28.7M | -6.0% |
+| 8 | Axis | $28.9M | $28.7M | -0.6% |
+| 9 | OnRe (was 10) | $22.1M | $21.7M | -1.6% |
+| 10 | Gauntlet (was 9) | $22.3M | $21.0M | -5.6% |
+
+Rank 3 vs 4 is now decided by $4,068. Sensitivity on the new board with edge slopes 0.370/0.634: top-10 stays 6/10 at low slope (rank 1 BitFi $38.6M; low-slope top 10 identical to v6's: BitFi, Tori, Axis, dTAO, USDD, Veda, Circle Gateway, Drakewell, Aegis YUSD, Liminal Basis), 10/10 at high slope (rank 1 BitFi $57.0M). Rank ranges across the 200 refits: BitFi 1-1, USDD 2-5, dTAO 3-6, Veda 3-6, Tori 2-7, Sentora 4-12, Steakhouse 5-13, Axis 3-9, OnRe 9-11, Gauntlet 7-16 (Sentora/Steakhouse ranges widened from 2-10/5-11: the Lending multiplier cut makes them more slope-sensitive). Last row still Nucleus, $602,090 (was $598,830). BitFi band $34.6M-$67.4M on a $47.7M point (was $34.4M-$67.5M on $48.3M).
+
+## 6. Dashboard byte budget: 65,341 bytes, 195 bytes of headroom
+
+v6 was 65,186; the additions (audit lede line, baseline sentence, time-split disclosure, multiplier nuance) first landed at 65,777, 241 over the 65,536 cap. Cuts made, all words, none of them touching a number: lede trimmed, validation strip sentences shortened ("Bootstrap 90% band" for "Bootstrap 90% band on the fit itself", "Fold slopes 0.43-0.59." for the full sentence), model panel and uncertainty paragraph tightened, deep-dive captions and chain caption cut, excluded note cut, fit panel note cut, contenders note cut, detail recompute paragraph cut. Final: dashboard 65,341 bytes, dossier text 65,509 bytes (27 bytes of headroom), dossier.json 1,201,090 bytes (cap 1,572,864). The dossier text is closer to its cap than v6's (65,450) because the screenshot total grew; nothing of substance was cut.
+
+## 7. Screenshots: 1440x900, retaken, visually inspected
+
+Same script (/tmp/shot/shot.mjs), same scrolls (397 / #p=bitfi-basis / 900 / #contenders). All four inspected:
+
+| Shot | Content | Size | v6 |
+| --- | --- | --- | --- |
+| 1-board.png | Validation strip (new numbers in frame: x3.36/x3.40/x3.34, baselines, 14 alternatives, time-split, 83 of 127), 9/9 self-test, controls, board header, rank 1 BitFi $47.7M with $34.6M-$67.4M band | 191,228 B | 189,739 B |
+| 2-detail.png | BitFi Basis dialog: exp(7.034) x TVL ^ 0.516, x3.09, launch $74.5M, odds 64%, EV $47.7M, band $34.6M-$67.4M, edge $38.6M (rank 1) at slope 0.370 and $57.0M (rank 1) at 0.634, recompute agrees; lede audit line visible behind | 307,897 B | 291,191 B |
+| 3-filtered.png | Lending filter (16 rows), odds 75-79% | 131,759 B | 139,604 B |
+| 4-deepdive.png | Contenders ranks 5-9 with new edge slopes and rank ranges (Tori 2-7, Sentora 4-12, Steakhouse 5-13, Axis 3-9, OnRe 9-11), deep-dive integrity paragraph ("127 price the fit; 1 is set aside (Aave V2)") | 219,469 B | 219,278 B |
+
+Total PNG 849,853 bytes (v6: 839,812). Fixed-point note: the self-test prints screenshot sizes, so round 1 shots (191,204/307,938) differed from the installed files on shots 1-2; round 2 (191,228/307,897) re-rendered byte-identical on all four, so data.js, the dossier and the rendered sizes (187K, 301K, 129K, 214K) all agree.
+
+## 8. Verification (independent Python recompute, /tmp/v7_verify.py, 70 checks, all pass)
+
+Re-derived from the snapshot with the documented constants only (no TypeScript imported): classification, odds, launch/odds/EV and model fields for all 198 rows, nearest comps for all 198 rows on the 127 fit set, central fit OLS, residual SD, LOO/5-fold/10-fold, both baselines on identical folds (LOO and 10-fold recomputed, not just trusted), curve-with-multipliers LOO, full-function LOO, time-split counts and both directions recomputed, comps backtest (honest LOO-vs-LOO), bootstrap (CPython Random(1234) reproduces the TS MT19937 stream draw for draw on the 127 set: first 10 draws 123, 99, 56, 14, 0, 11, 116, 120, 120, 103), EV bands, rank ranges, edge fits, contenders, category dive, chain breakdown, histogram, live rows, calibration (127 set), scatter (128 points), farm steps, gates and caps. Exact matches throughout, including the VALIDATION literals (LOO/5-fold/10-fold, baselines, timesplit, comps_backtest) and the absence of the `walkforward` key. Two runs byte-identical; dossier text 65,509 bytes, under the 65,536 cap.
+
+## Token Radar v6 build report (radar-7)
 
 Built 2026-11-22, local only, on top of v5 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits. v5 is already submitted (submission 01a2032d-ea2f-76f5-af9e-b9dd3ba834fe) and scored on dev at a provisional win rate of 0.945458 (20 wins, 0 losses, 20 games), up from v4's 0.936619. v6 is built to close the remaining gap to the top 10. The ranking is UNCHANGED from v5: the same fit, the same odds, the same 198 expected values, byte for byte (board.json sha256 8273320982b1d49294f1fe5078e32762fa1d0f80888b99c3b1e40bba39b3d59e, identical to the v5 board). What changed is what a pairwise judge sees: a self-test panel, a comps backtest, a Contenders section for the unstable middle, edge values in the detail view, and four retaken screenshots at 1440x900.
 

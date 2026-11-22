@@ -1,4 +1,4 @@
-// Token Radar dashboard (radar-7). Reads window.RADAR and renders the
+// Token Radar dashboard (radar-8). Reads window.RADAR and renders the
 // ranked board, filters, a per-protocol detail view, and the farm plan.
 // No network: every byte it shows is in data.js.
 (function () {
@@ -229,7 +229,7 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: 'Pre-token protocols, ranked by what a launch would be worth' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. This board ranks all ' + DATA.board_size + ' rankable pre-token protocols. ' + DATA.excluded_size + ' more are excluded by the watchlist rule itself, because they are bridged, wrapped or staked products of a token that already trades, and they are listed separately with the reason each one was set aside. Rank is by expected value: launch value x launch odds, where the odds start from the share of protocols in the category that ever launched a token and are adjusted by the protocol\'s TVL. Expected value is a model, not a price and not a promise of a token.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. This board ranks all ' + DATA.board_size + ' rankable pre-token protocols. ' + DATA.excluded_size + ' more are excluded by the watchlist rule itself, because each is a bridged, wrapped or staked product of a token that already trades. Rank is by expected value: launch value x launch odds, from the category token share, adjusted by TVL. Expected value is a model, not a price and not a promise of a token. Comps audit: all 128 traded protocols were checked by name; no token family appears twice, and 1 row, Aave V2, was set aside from the fit: its TVL is 0.6% of Aave\'s TVL while its market cap is the whole AAVE token.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
@@ -358,11 +358,11 @@
     return el('section', { class: 'panel fit-details', id: 'contenders' },
       el('div', { class: 'panel-note' },
         el('h2', { text: 'Contenders: ranks 5-9' }),
-        el('p', { class: 'sub', text: 'Rank 1 never moves across the 200 refits; these five do. Each shows its value now, its value and rank with the slope at either end of its 90% band, its odds with its category base, and its implied multiple against its 3 nearest comps\' median.' })
+        el('p', { class: 'sub', text: 'Rank 1 never moves across the 200 refits; these five do. Each shows its value now, its value and rank at either end of the slope band, its odds with its category base, and its multiple against its comps\' median.' })
       ),
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Rank' }), el('th', { scope: 'col', text: 'Protocol' }), el('th', { scope: 'col', text: 'Expected value' }), el('th', { scope: 'col', text: 'At slope 0.371' }), el('th', { scope: 'col', text: 'At slope 0.679' }), el('th', { scope: 'col', text: 'Launch odds' }), el('th', { scope: 'col', text: 'Implied vs comps' }))),
+          el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Rank' }), el('th', { scope: 'col', text: 'Protocol' }), el('th', { scope: 'col', text: 'Expected value' }), el('th', { scope: 'col', text: 'At slope 0.370' }), el('th', { scope: 'col', text: 'At slope 0.634' }), el('th', { scope: 'col', text: 'Launch odds' }), el('th', { scope: 'col', text: 'Implied vs comps' }))),
           tbody
         )
       )
@@ -392,7 +392,8 @@
     );
   }
 
-  // Log-log scatter of the 128 traded protocols, with the fitted line.
+  // Log-log scatter of the 128 traded protocols, with the fitted line
+  // (the line is the 127-row fit; Aave V2 is plotted but set aside).
   function scatterSvg() {
     var pts = DATA.scatter || [];
     var m = DATA.model;
@@ -430,14 +431,15 @@
     var oc = v.odds_cv || { baseline_logloss: 0.6423, baseline_auc: 0.6455, twostage_logloss: 0.6377, twostage_auc: 0.6641, age_logloss: 0.5967, age_auc: 0.7431 };
     var altAll = (v.alternatives || []).concat(v.value_tests || []);
     var altBest = null;
-    altAll.forEach(function (a) { if (!altBest || a.multiple < altBest.multiple) altBest = a; });
-    var wf = v.walkforward || { known_age_n: 95, old_to_young_multiple: 2.88, old_to_young_test_n: 32, young_to_old_multiple: 2.96, young_to_old_test_n: 63 };
-    var sens = v.sensitivity || { slope_lo: 0.371, slope_hi: 0.679, top10_stays_lo: 6, top10_stays_hi: 10, rank1_lo: 'BitFi Basis', rank1_hi: 'BitFi Basis' };
-    var tf = v.tenfold_multiple || 3.47;
-    var cb = v.comps_backtest || { loo_multiple: 5.38, fit_wins: 80, fit_wins_pct: 62.5, n: 128, same_category_multiple: 5.42, same_category_n: 91 };
+    altAll.forEach(function (a) { if (a.name === 'category-residual multipliers') return; if (!altBest || a.multiple < altBest.multiple) altBest = a; });
+    var wf = v.timesplit || { known_age_n: 95, cutoff: '2024-11-14', old_to_young_multiple: 2.88, old_to_young_test_n: 32, young_to_old_multiple: 2.96, young_to_old_test_n: 63, unknown_age_n: 32 };
+    var sens = v.sensitivity || { slope_lo: 0.37, slope_hi: 0.634, top10_stays_lo: 6, top10_stays_hi: 10, rank1_lo: 'BitFi Basis', rank1_hi: 'BitFi Basis' };
+    var tf = v.tenfold_multiple || 3.34;
+    var cb = v.comps_backtest || { loo_multiple: 5.35, fit_wins: 83, fit_wins_pct: 65.4, n: 127, same_category_multiple: 5.16, same_category_n: 90 };
+    var bl = v.baselines || { cat_median_loo: 4.81, cat_median_tenfold: 4.62, global_median_loo: 5.02, global_median_tenfold: 4.89 };
     return el('section', { class: 'panel valid' },
       el('h2', { text: 'Held out, not in-sample' }),
-      el('p', { class: 'sub', text: 'Value fit: leave-one-out median error x' + v.loo_multiple.toFixed(2) + ' (median absolute log error ' + v.loo_median_abs_log_error + '), 5-fold x' + v.fivefold_multiple.toFixed(2) + ', 10-fold x' + tf.toFixed(2) + ' on ' + v.n_traded + ' traded protocols. Fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + ': the slope is stable, the intercept moves with it. Bootstrap 90% band on the fit itself: x' + v.bootstrap_band_multiple.toFixed(2) + ' at median TVL. ' + altAll.length + ' alternatives tested held out (best: ' + (altBest ? altBest.name + ' x' + altBest.multiple.toFixed(2) : 'none') + '); none beat the log-log fit. Comps backtest: pricing off the 3 nearest traded comps is worse held out, leave-one-out x' + cb.loo_multiple.toFixed(2) + ' against x' + v.loo_multiple.toFixed(2) + ' for the fit; the fit wins on ' + cb.fit_wins + ' of ' + cb.n + ' (62.5%); same-category comps only, x' + cb.same_category_multiple.toFixed(2) + ' (n=' + cb.same_category_n + '). The comps anchor the price; they do not set it. Walk-forward by age (' + wf.known_age_n + ' with a known listing date; 33 have none): old-to-young x' + wf.old_to_young_multiple.toFixed(2) + ' (' + wf.old_to_young_test_n + ' tested), young-to-old x' + wf.young_to_old_multiple.toFixed(2) + ' (' + wf.young_to_old_test_n + ' tested). Both test sets are small: a second check, not a proof. Launch odds, 5-fold CV, all 758 protocols: category-only log loss ' + oc.baseline_logloss + ', AUC ' + oc.baseline_auc + '; two-stage (category share + TVL) log loss ' + oc.twostage_logloss + ', AUC ' + oc.twostage_auc + '. An age-band model scores better on that CV (log loss ' + oc.age_logloss + ', AUC ' + oc.age_auc + ') but was rejected: age wins only because old protocols have had time to launch, and it would give a five-year tokenless protocol 77% odds, backwards for a forward bet. Sensitivity: at slope ' + sens.slope_lo + ' the top 10 keeps ' + sens.top10_stays_lo + ', at ' + sens.slope_hi + ' it keeps ' + sens.top10_stays_hi + ' (intercept refit each time, same odds); rank 1 is ' + sens.rank1_lo + ' under both.' })
+      el('p', { class: 'sub', text: 'Value fit: leave-one-out median error x' + v.loo_multiple.toFixed(2) + ' (median absolute log error ' + v.loo_median_abs_log_error + '), 5-fold x' + v.fivefold_multiple.toFixed(2) + ', 10-fold x' + tf.toFixed(2) + ' on ' + v.n_traded + ' traded protocols. Fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + '. Bootstrap 90% band: x' + v.bootstrap_band_multiple.toFixed(2) + ' at median TVL. Same folds, the fit beats a flat category-median multiple (LOO x' + bl.cat_median_loo.toFixed(2) + ', 10-fold x' + bl.cat_median_tenfold.toFixed(2) + ') and a flat TVL-only multiple (x' + bl.global_median_loo.toFixed(2) + ', x' + bl.global_median_tenfold.toFixed(2) + '). ' + (altAll.length - 1) + ' alternatives tested held out (best: ' + (altBest ? altBest.name + ' x' + altBest.multiple.toFixed(2) : 'none') + '); none beat the shipped pricing function. The fitted category multipliers are part of that function, not an alternative: curve alone LOO x' + v.loo_multiple.toFixed(2) + ', curve with multipliers x3.28. Comps backtest: pricing off the 3 nearest traded comps is worse held out, leave-one-out x' + cb.loo_multiple.toFixed(2) + ' against x' + v.loo_multiple.toFixed(2) + ' for the fit; the fit wins on ' + cb.fit_wins + ' of ' + cb.n + ' (' + cb.fit_wins_pct + '%); same-category only, x' + cb.same_category_multiple.toFixed(2) + ' (n=' + cb.same_category_n + '). The comps anchor the price; they do not set it. Time-split by listing date (' + wf.known_age_n + ' known, ' + wf.unknown_age_n + ' unknown): fit on protocols listed before ' + wf.cutoff + ', test on later listings, x' + wf.old_to_young_multiple.toFixed(2) + ' (' + wf.old_to_young_test_n + ' tested); fit on later, test on earlier, x' + wf.young_to_old_multiple.toFixed(2) + ' (' + wf.young_to_old_test_n + ' tested). All values come from the single 2026-11-14 snapshot, so this tests transfer across cohorts, not prediction across time. Both test sets are small: a second check, not a proof. Launch odds, 5-fold CV, all 758 protocols: category-only log loss ' + oc.baseline_logloss + ', AUC ' + oc.baseline_auc + '; two-stage (category share + TVL) log loss ' + oc.twostage_logloss + ', AUC ' + oc.twostage_auc + '. An age-band model scores better (log loss ' + oc.age_logloss + ', AUC ' + oc.age_auc + ') but was rejected: age wins only because old protocols have had time to launch, and it would give a five-year tokenless protocol 77% odds. Sensitivity: at slope ' + sens.slope_lo + ' the top 10 keeps ' + sens.top10_stays_lo + ', at ' + sens.slope_hi + ' it keeps ' + sens.top10_stays_hi + ' (intercept refit, same odds); rank 1 is ' + sens.rank1_lo + ' under both.' })
     );
   }
 
@@ -502,7 +504,7 @@
         el('div', { class: 'fit-chart' },
           el('h2', { text: 'The fit, not just the formula' }),
           el('div', { html: scatterSvg() }),
-          el('p', { class: 'sub', text: 'Each dot is one of the 128 traded protocols. The line is log(mcap) = 6.965 + 0.522 x log(TVL), residual SD 2.08: the dots spread wide around it, so every implied value is an order-of-magnitude estimate.' })
+          el('p', { class: 'sub', text: 'Each dot is one of the 128 traded protocols. The line is log(mcap) = 7.034 + 0.516 x log(TVL), residual SD 2.06: the dots spread wide, so every implied value is an order-of-magnitude estimate. Aave V2 is plotted but set aside from the fit.' })
         ),
         el('div', { class: 'fit-table' },
           el('h2', { text: 'Calibration by category' }),
@@ -512,7 +514,7 @@
               tbody
             )
           ),
-          el('p', { class: 'sub', text: 'Fitted multiplier is exp(mean log residual) where n >= 4; other categories score 1.0. Bridge, Canonical Bridge and Liquid Staking are calibration only: excluded from the board.' })
+          el('p', { class: 'sub', text: 'Fitted multiplier is exp(mean log residual) where n >= 4; others score 1.0. Bridge, Canonical Bridge and Liquid Staking are calibration only.' })
         )
       )
     );
@@ -541,7 +543,7 @@
   }
 
   function deepDive() {
-    var ig = DATA.integrity || { total: 758, ranked: 198, excluded: 144, traded: 416, traded_in_fit: 128, traded_no_mcap: 272, traded_zero_mcap: 16 };
+    var ig = DATA.integrity || { total: 758, ranked: 198, excluded: 144, traded: 416, traded_in_fit: 127, fit_excluded: 1, traded_no_mcap: 272, traded_zero_mcap: 16 };
     var dive = DATA.category_dive || [];
     var chains = DATA.chain_breakdown || [];
     var hist = DATA.tvl_histogram || { lo: 6.5, hi: 9.5, bins: [] };
@@ -578,18 +580,18 @@
     return el('section', { class: 'panel fit-details', id: 'deepdive' },
       el('div', { class: 'panel-note' },
         el('h2', { text: 'Where the value sits' }),
-        el('p', { class: 'sub', text: 'All ' + ig.total + ' protocols in the snapshot are accounted for here: ' + ig.ranked + ' ranked on the board, ' + ig.excluded + ' excluded by the watchlist rule, ' + ig.traded + ' already trading. Of the traded ones, ' + ig.traded_in_fit + ' have a market cap and a TVL, so they price the fit; ' + ig.traded_no_mcap + ' trade with no market-cap figure in this snapshot and ' + ig.traded_zero_mcap + ' report a market cap of zero or less, so neither group can enter a log-log fit. Every protocol is in exactly one of those buckets.' })
+        el('p', { class: 'sub', text: 'All ' + ig.total + ' protocols are accounted for: ' + ig.ranked + ' ranked, ' + ig.excluded + ' excluded by the watchlist rule, ' + ig.traded + ' already trading. Of the traded ones, ' + ig.traded_in_fit + ' have a market cap and a TVL, so they price the fit; ' + (ig.fit_excluded || 0) + ' is set aside from the fit (Aave V2); ' + ig.traded_no_mcap + ' trade with no market-cap figure in this snapshot and ' + ig.traded_zero_mcap + ' report a market cap of zero or less, so neither group can enter a log-log fit. Every protocol is in exactly one of those buckets.' })
       ),
       el('div', { class: 'fit' },
         el('div', { class: 'fit-chart' },
           el('h2', { text: 'Expected value by category (top 12)' }),
           el('div', { html: barsSvg(catItems, fmtUsd) }),
-          el('p', { class: 'sub', text: 'Basis Trading and Risk Curators hold the most expected value, but for opposite reasons: Basis Trading pairs high multiples with middling odds, Risk Curators pair the biggest TVLs with the lowest odds on the board (21%).' })
+          el('p', { class: 'sub', text: 'Basis Trading and Risk Curators hold the most expected value, for opposite reasons.' })
         ),
         el('div', { class: 'fit-chart' },
           el('h2', { text: 'Board rows by TVL (log10 bins)' }),
           el('div', { html: barsSvg(histItems, function (n) { return String(n) + ' rows'; }) }),
-          el('p', { class: 'sub', text: 'Most ranked protocols sit between $3M and $300M of TVL; only 4 rows sit above $1B. The log-log fit, not a flat multiple, is what lets one curve price both ends.' })
+          el('p', { class: 'sub', text: 'Most rows sit between $3M and $300M of TVL; 4 sit above $1B.' })
         )
       ),
       el('div', { class: 'fit-table', style: 'padding:0 24px 24px' },
@@ -610,7 +612,7 @@
             cbody
           )
         ),
-        el('p', { class: 'sub', text: 'Ethereum holds the most rows and expected value; the long tail of 51 chains is grouped as Other. Rank ranges across the 200 bootstrap refits (5th-95th percentile): ' + ranges + '. Rank 1 never moves; ranks 5-9 are the ones the fit cannot pin down.' })
+        el('p', { class: 'sub', text: 'The long tail of 51 chains is grouped as Other. Rank ranges across the 200 bootstrap refits (5th-95th percentile): ' + ranges + '. Rank 1 never moves; ranks 5-9 are the ones the fit cannot pin down.' })
       )
     );
   }
@@ -631,7 +633,7 @@
     return el('div', { class: 'panel' },
       el('div', { class: 'panel-note' },
         el('h2', { text: 'Excluded: ' + DATA.excluded.length + ' protocols' }),
-        el('p', { class: 'sub', text: 'These record no token in the snapshot, but the watchlist rule keeps them out of the ranking because each one is a bridged, wrapped or staked product of a token that already trades, an exchange, or a versioned pool. ' + summary + '. They are listed so the exclusion is checkable, not hidden; no farm plan is given for them.' })
+        el('p', { class: 'sub', text: 'These record no token, but each is a bridged, wrapped or staked product of a token that already trades, an exchange, or a versioned pool. ' + summary + '. Listed so the exclusion is checkable; no farm plan is given.' })
       ),
       el('div', { class: 'table-wrap' },
         el('table', null,
@@ -645,7 +647,7 @@
   function modelPanel() {
     var m = DATA.model;
     var v = DATA.validation;
-    var sens = v.sensitivity || { slope_lo: 0.371, slope_hi: 0.679, top10_stays_lo: 6, top10_stays_hi: 10, rank1_lo: 'BitFi Basis', rank1_hi: 'BitFi Basis' };
+    var sens = v.sensitivity || { slope_lo: 0.37, slope_hi: 0.634, top10_stays_lo: 6, top10_stays_hi: 10, rank1_lo: 'BitFi Basis', rank1_hi: 'BitFi Basis' };
     var tf = v.tenfold_multiple || 3.47;
     var odds = (DATA.odds_table || []).slice(0, 6).map(function (o) { return o.category + ' ' + Math.round(o.launch_odds * 100) + '% (n=' + o.n + ')'; }).join(', ');
     return el('section', { class: 'panel model' },
@@ -654,8 +656,8 @@
       el('div', { class: 'formula' },
         'expected = launch x odds; launch = round( exp(' + m.log_intercept + ') x TVL ^ ' + m.log_tvl_exponent + ' x category x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x maturity )'
       ),
-      el('p', { class: 'sub', text: 'Fitted on the 128 traded protocols in this snapshot: log(mcap) = ' + m.log_intercept + ' + ' + m.log_tvl_exponent + ' x log(TVL), residual SD ' + m.residual_sd_log + ' log units. Held out, the fit is no tighter: leave-one-out median error x' + v.loo_multiple.toFixed(2) + ', 5-fold x' + v.fivefold_multiple.toFixed(2) + ', 10-fold x' + tf.toFixed(2) + ', fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + '. That dispersion is the honest limit: a single expected value is uncertain by roughly a factor of 3-4 either way. Category multipliers are exp(mean log residual) where n >= 4 (Basis Trading 2.99, Canonical Bridge 2.11, RWA 1.21, Dexs 1.14, Lending 0.57, Yield 0.49, Liquid Staking 0.38, Yield Aggregator 0.34); others score 1.0. Canonical Bridge, Bridge and Liquid Staking are calibration only: excluded from the board. Growth barely predicts the residual (corr -0.14): weight 0.30. Maturity is capped: 1.20 under a year, 1.10 for 1-2 years, 0.85 older. Median mcap/TVL falls from 0.42 at $5-50M TVL to 0.013 above $10B: hence log-log, not linear. Launch odds are two-stage: the category token share, smoothed toward the overall 54.9% with alpha 10, as the log-odds offset, plus 0.23 per SD of log10 TVL (5-fold CV log loss 0.638 vs 0.642 category-only, AUC 0.664 vs 0.646). Highest base shares: ' + odds + '. Age is not used for odds: the token share rises with age because it is cumulative, and a protocol that has had years to launch and still has not is a worse forward bet; an age-band model wins the CV (log loss 0.597, AUC 0.743) on that signal alone, and was rejected for that reason. The board applies the watchlist exclusion to every row. Each farm plan ends with a costed net verdict against the expected launch value.' }),
-      el('p', { class: 'sub', text: 'Uncertainty, stated two ways. First, every expected value on the board carries a 90% band from 200 bootstrap refits of the log-log fit (seed 1234, the same resamples as the v3 bootstrap; slope band ' + (DATA.bootstrap ? DATA.bootstrap.slope_p5 : v.bootstrap_slope_p5) + '-' + (DATA.bootstrap ? DATA.bootstrap.slope_p95 : v.bootstrap_slope_p95) + '). The band is the 5th-95th percentile of that row\'s launch value across the refits, times its launch odds: parameter uncertainty only. The x' + v.loo_multiple.toFixed(2) + ' per-protocol dispersion sits on top of it, so a $34M-$67M band on a $48M point value is the fit\'s own uncertainty, before any single protocol\'s deviation. It is not a prediction interval, and no row\'s point value moves because of it. Second, the board was re-scored with the slope at either end of its 90% band (' + sens.slope_lo + ' and ' + sens.slope_hi + ', intercept refit each time, same odds): ' + sens.top10_stays_lo + ' of the top 10 stay in the top 10 at the low end and ' + sens.top10_stays_hi + ' at the high end, and rank 1 is ' + sens.rank1_lo + ' under both. Rank ranges across the 200 refits are listed with the category deep dive.' })
+      el('p', { class: 'sub', text: 'Fitted on the 127 traded protocols in this snapshot: log(mcap) = ' + m.log_intercept + ' + ' + m.log_tvl_exponent + ' x log(TVL), residual SD ' + m.residual_sd_log + ' log units. Held out: leave-one-out median error x' + v.loo_multiple.toFixed(2) + ', 5-fold x' + v.fivefold_multiple.toFixed(2) + ', 10-fold x' + tf.toFixed(2) + ', fold slopes ' + Math.min.apply(null, v.fold_slopes).toFixed(2) + '-' + Math.max.apply(null, v.fold_slopes).toFixed(2) + '. That dispersion is the honest limit: one expected value is uncertain by a factor of 3-4 either way. Category multipliers are exp(mean log residual) where n >= 4 (Basis Trading 3.09, Canonical Bridge 2.19, RWA 1.25, Dexs 1.18, Lending 0.40, Yield 0.50, Liquid Staking 0.39, Yield Aggregator 0.35); others score 1.0. Canonical Bridge, Bridge and Liquid Staking are calibration only: excluded from the board. Growth barely predicts the residual (corr -0.14), so weight 0.30. Maturity is capped: 1.20 under a year, 1.10 for 1-2 years, 0.85 older. Median mcap/TVL falls from 0.42 at $5-50M to 0.013 above $10B, so the fit is log-log, not linear. Launch odds are two-stage: the category token share, smoothed toward 54.9% with alpha 10, as the log-odds offset, plus 0.23 per SD of log10 TVL (5-fold CV log loss 0.638 vs 0.642 category-only, AUC 0.664 vs 0.646). Highest base shares: ' + odds + '. Age is not used for odds: the token share rises with age because it is cumulative, and a protocol that has had years to launch and still has not is a worse forward bet; an age-band model wins the CV (log loss 0.597, AUC 0.743) on that signal alone, so it was rejected. Every row passes the watchlist exclusion; every farm plan ends with a costed net verdict.' }),
+      el('p', { class: 'sub', text: 'Uncertainty, stated two ways. First, every expected value on the board carries a 90% band from 200 bootstrap refits of the log-log fit (seed 1234; slope band ' + (DATA.bootstrap ? DATA.bootstrap.slope_p5 : v.bootstrap_slope_p5) + '-' + (DATA.bootstrap ? DATA.bootstrap.slope_p95 : v.bootstrap_slope_p95) + '). The band is the 5th-95th percentile of that row\'s launch value across the refits, times its odds: parameter uncertainty only. The x' + v.loo_multiple.toFixed(2) + ' per-protocol dispersion sits on top of it, so a $35M-$67M band on a $48M point value is the fit\'s own uncertainty, before any single protocol\'s deviation. It is not a prediction interval. Second, the board was re-scored with the slope at either end of its 90% band (' + sens.slope_lo + ' and ' + sens.slope_hi + ', intercept refit, same odds): ' + sens.top10_stays_lo + ' of the top 10 stay at the low end and ' + sens.top10_stays_hi + ' at the high end, and rank 1 is ' + sens.rank1_lo + ' under both.' })
     );
   }
 
@@ -685,7 +687,7 @@
       el('h3', { text: 'Model breakdown' }),
       el('div', { class: 'equation' },
         el('div', null, el('span', { text: 'TVL' }), el('b', { class: 'num', text: fmtUsd(row.tvl_usd) })),
-        el('div', null, el('span', { text: 'Log-log base: exp(6.965) x TVL ^ 0.522' }), el('b', { class: 'num', text: fmtUsd(row.base_value_usd) })),
+        el('div', null, el('span', { text: 'Log-log base: exp(7.034) x TVL ^ 0.516' }), el('b', { class: 'num', text: fmtUsd(row.base_value_usd) })),
         el('div', null, el('span', { text: 'Category factor (' + (row.category || 'none') + ')' }), el('b', { class: 'num', text: 'x' + row.category_multiplier })),
         el('div', null, el('span', { text: 'Growth factor (' + fmtPct(row.change_7d) + ')' }), el('b', { class: 'num', text: 'x' + row.growth_multiplier })),
         el('div', null, el('span', { text: 'Maturity factor (' + fmtAge(row.age_days) + ')' }), el('b', { class: 'num', text: 'x' + row.maturity_multiplier })),
@@ -693,10 +695,10 @@
         el('div', null, el('span', { text: 'Launch odds (category share + TVL)' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '%' })),
         el('div', null, el('span', { text: 'Expected value = launch x odds' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) })),
         el('div', null, el('span', { text: '90% band on expected value' }), el('b', { class: 'num', text: fmtUsd(row.ev_lo_usd) + ' - ' + fmtUsd(row.ev_hi_usd) })),
-        edge ? el('div', null, el('span', { text: 'Expected value at slope 0.371 (low end)' }), el('b', { class: 'num', text: fmtUsd(edge.ev_lo_slope_usd) + ' (rank ' + edge.rank_lo_slope + ')' })) : null,
-        edge ? el('div', null, el('span', { text: 'Expected value at slope 0.679 (high end)' }), el('b', { class: 'num', text: fmtUsd(edge.ev_hi_slope_usd) + ' (rank ' + edge.rank_hi_slope + ')' })) : null
+        edge ? el('div', null, el('span', { text: 'Expected value at slope 0.370 (low end)' }), el('b', { class: 'num', text: fmtUsd(edge.ev_lo_slope_usd) + ' (rank ' + edge.rank_lo_slope + ')' })) : null,
+        edge ? el('div', null, el('span', { text: 'Expected value at slope 0.634 (high end)' }), el('b', { class: 'num', text: fmtUsd(edge.ev_hi_slope_usd) + ' (rank ' + edge.rank_hi_slope + ')' })) : null
       ),
-      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (diff <= 1 ? ', the same number board.json carries (a $1 tie-break at most).' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price, and it records no token. Launch odds are the category share smoothed toward the overall rate, adjusted by this protocol\'s TVL (+0.23 log-odds per SD of log10 TVL); your share of any launch is unknown. The 90% band is parameter uncertainty only, on top of the x3.40 per-protocol dispersion, not a prediction interval.' })
+      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (diff <= 1 ? ', the same number board.json carries (a $1 tie-break at most).' : ', which differs from the board: the data would be stale.') + ' An estimate, not a price; it records no token. Launch odds are the smoothed category share, adjusted by TVL; your share of any launch is unknown. The 90% band is parameter uncertainty only, on top of the x3.36 per-protocol dispersion, not a prediction interval.' })
     ));
     var comps = row.comps || [];
     if (comps.length > 0) {
