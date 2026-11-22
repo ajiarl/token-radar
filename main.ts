@@ -51,6 +51,18 @@ if (issue !== null) {
 }
 
 mkdirSync(out, { recursive: true });
+// v6: the page's self-test checks the dossier's own caps, so the build
+// hands it the sizes it cannot measure itself: the dashboard source and
+// the screenshots, as they stand in this repository.
+const dashDir = join(here, 'dashboard');
+const shotDir = join(here, 'screenshots');
+radar.dashboard_bytes = readdirSync(dashDir)
+  .filter((n) => !n.startsWith('.'))
+  .reduce((a, n) => a + statSync(join(dashDir, n)).size, 0);
+radar.screenshot_bytes = readdirSync(shotDir)
+  .filter((n) => !n.startsWith('.'))
+  .sort()
+  .map((n) => statSync(join(shotDir, n)).size);
 writeFileSync(join(out, 'board.json'), `${JSON.stringify({ rows: board })}\n`);
 writeFileSync(join(out, 'data.js'), dataScript(radar));
 

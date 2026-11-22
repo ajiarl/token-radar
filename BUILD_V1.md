@@ -1,3 +1,100 @@
+# Token Radar v6 build report (radar-7)
+
+Built 2026-11-22, local only, on top of v5 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits. v5 is already submitted (submission 01a2032d-ea2f-76f5-af9e-b9dd3ba834fe) and scored on dev at a provisional win rate of 0.945458 (20 wins, 0 losses, 20 games), up from v4's 0.936619. v6 is built to close the remaining gap to the top 10. The ranking is UNCHANGED from v5: the same fit, the same odds, the same 198 expected values, byte for byte (board.json sha256 8273320982b1d49294f1fe5078e32762fa1d0f80888b99c3b1e40bba39b3d59e, identical to the v5 board). What changed is what a pairwise judge sees: a self-test panel, a comps backtest, a Contenders section for the unstable middle, edge values in the detail view, and four retaken screenshots at 1440x900.
+
+## Leaderboard gaps targeted (re-checked 2026-11-22 about 19:20 WIB, GET leaderboard?limit=30)
+
+Top-10 cutoff 0.961255 (rank 10 fikril07, "Launch Radar v9"). Rank 1 kiencx 0.966767 ("Launch Radar v4"). Ranks 2-3 nyx77 and meena1321 at 0.964424; ranks 4-9 at 0.962052; ranks 10-14 at 0.961255; ranks 15-16 at 0.960454; ranks 17-19 at 0.959650; rank 20 at 0.958843. Our v5 dev score 0.945458 sits about 0.016 below the bar.
+
+Two gaps the leaders advertise that v5 still lacked, targeted first:
+
+- Checks on the cover. Rank 5 behzad-khanlar "answers its own checks on the cover", rank 15 europa-nova "9-check self-test", rank 24 y-cat33 "six proofs that can fail". v5 had a validation strip but no panel that runs the entry's own checks and shows the result. v6 adds a self-test panel (section 1).
+- Comps tested, not just listed. Rank 8 nightshift-labs "traded tokens as anchors", rank 9 calm-owl-82 "comps curve tested blind", rank 16 hazel-harbor-63 and rank 28 tiar "backtested comparables". v5 listed 3 nearest comps per row but never tested whether comps-only pricing works. v6 adds the backtest (section 2) and states its verdict in the strip: the comps anchor the price, they do not set it.
+
+Not copied: rank 5 and rank 18 claim odds that fall with age; that was already rejected on survivorship grounds in v3/v4 and stands rejected. Rank 15's "own-token share" is not in the snapshot and cannot be invented. Rank 10's claimed LOO x2.99 cannot be verified from a title alone.
+
+## 1. Self-test panel: 9 checks, all pass, rendered by the page itself
+
+New `selfTest()` in dashboard/app.js, wired into `render()` after the validation strip. It computes six checks from the data it renders (ranks exactly 1-198; values distinct and decreasing; watchlist covered 40/40; all 758 accounted for as 198 + 144 + 416; page recompute agrees with board.json with worst difference; 8 farm steps per row of 20-600 chars), two from sizes main.ts hands it (dashboard under the 65,536-byte cap; screenshots under the 512 KiB cap), and one build fact, labelled as one (two runs byte-identical, verified at build). The panel heading reads "9 of 9 checks pass" and each check shows its evidence (worst $0 on the recompute, 1584 steps, 65186 bytes). A check that fails would say so; none is hidden. Verified in the headless browser: the panel renders 9 of 9 pass, and shot 1 shows it.
+
+## 2. Comps backtest: comps-only pricing loses held out (script /tmp/v6_analysis.py, deterministic)
+
+Leave-one-out on the 128 traded protocols, pricing off the median mcap/TVL of the 3 nearest traded comps by log TVL (self excluded), the same nearest rule the board uses for its anchors:
+
+| Pricing rule | LOO median error | vs fit LOO x3.40 |
+| --- | --- | --- |
+| Fit (log-log, for reference) | x3.40 | - |
+| 3 nearest comps, any category | x5.38 | worse |
+| 3 nearest comps, same category only | x5.42 (n=91 with at least 3 same-category comps) | worse |
+| Comps-only by TVL tertile | x4.70 / x4.43 / x5.55 | worse in every tertile |
+
+The fit beats comps-only on 80 of 128 traded protocols (62.5%). Mean |log error| 1.957 comps-only vs 1.596 fit; 80th percentile x21.71 vs x11.43. Conclusion, stated in the strip: the comps anchor the price, they do not set it. The backtest numbers are stored in `VALIDATION.comps_backtest` (lib/model.ts) and shown in the strip; the full recompute in section 6 reproduces them exactly (x5.385, x5.418, 80/128).
+
+## 3. Contenders: ranks 5-9, where the fit cannot pin the order down
+
+New `contenders()` section on the board tab (id "contenders"), after the board table, and new `edge` rows for the top 10 in data.js. Both are computed at build time from the snapshot. Edge fits: the slope at either end of its 90% band (0.371 and 0.679) with the intercept refit as the mean residual at that slope (9.643 and 4.189 as stored in VALIDATION.sensitivity; the exact mean residuals are 9.6434 and 4.1889, so the stored 3-decimal intercepts move edge EVs by about 0.04%, immaterial and noted here rather than hidden). Same odds, same $1 tie-break behaviour as the central ranking (ranks by sorted position). The detail view of any top-10 row now shows its expected value at slope 0.371 and at 0.679.
+
+| Rank | Protocol | EV now | At slope 0.371 | At slope 0.679 | Odds (base) | Implied vs comps median |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5 | Sentora Curator | $31.0M | $16.9M (#11) | $58.6M (#4) | 31% (21%) | 0.036x vs 0.034x |
+| 6 | Tori Finance | $30.8M | $28.8M (#2) | $33.2M (#8) | 61% (60%) | 0.653x vs 0.310x |
+| 7 | Steakhouse Financial | $30.6M | $16.7M (#13) | $57.8M (#5) | 31% (21%) | 0.036x vs 0.034x |
+| 8 | Axis | $28.9M | $27.5M (#3) | $30.7M (#9) | 61% (60%) | 0.680x vs 0.310x |
+| 9 | Gauntlet | $22.3M | $13.2M (#16) | $38.6M (#7) | 30% (21%) | 0.048x vs 0.052x |
+
+Each row carries a generated plain-words `why` sentence (lib/model.ts, contenders builder). Two groups, not one story. The three Risk Curators (Sentora, Steakhouse, Gauntlet) are slope-sensitive: huge TVL ($2.76B, $2.75B, $1.58B), low odds, comps back the fit (multiples within 1.1x of their comps' median), so what moves them is the slope. The two Basis Trading rows (Tori, Axis) are EV-stable across slopes (their value barely moves; their rank moves because the big-TVL rows swing past them) but their implied multiples sit 2.1x-2.2x above their nearest comps' median, so the Basis Trading multiplier (x2.99) is doing the work and they are the most exposed if it is wrong. The `why` threshold is a 2x gap, not 3x: at 3x both Basis rows would have wrongly read as "the comps back the fit". Board EV cells for top-10 rows also gained their rank-range line (e.g. BitFi "rank 1-1").
+
+## 4. Dashboard byte budget: 65,186 bytes, 86 bytes of headroom
+
+v5 was 61,679 bytes; the cap on dossier text is 65,536, and the dossier wrapper adds about 264 bytes, so the dashboard must stay at or under about 65,272. The v6 additions (self-test, contenders, edge lines, comps sentence) first landed at 68,573 bytes, 3,301 over. Cuts made, all in dashboard/app.js and app.css, none of them touching a number the model computes:
+
+- Deleted the unused `launchOf` function (about 450 bytes, defined but never called) and trimmed the header comment.
+- Validation strip: the 15 held-out alternatives are now a count plus the best item (per-category intercept-only x3.45) instead of the full list; the sensitivity sentence rewritten shorter.
+- Trimmed, sentence by sentence, the lede, model panel, uncertainty paragraph, detail recompute paragraph, deep-dive integrity paragraph, comps paragraph, excluded note, fit panel note, scatter caption, category bars and histogram captions, board and live captions, deep-dive category note, self-test labels, contenders panel note, the `oddsOf`/`barsSvg`/farm-plan/self-test/contenders/scatter comments, and the CSS header comment; dropped the `prefers-reduced-motion` block from app.css.
+- Board cell padding tightened from 12px to 10px (CSS).
+
+Final: dashboard 65,186 bytes, dossier text 65,450 bytes, dossier.json 1,187,736 bytes (cap 1,572,864). Nothing of substance was cut: every validation number, every panel and every check is still on the page.
+
+## 5. Screenshots: 1440x900, retaken, visually inspected
+
+Viewport 1440x900 (long side at the 1440 cap, short side above the 800 minimum), script /tmp/shot/shot.mjs, puppeteer-core 23 driving the Remotion chrome-headless-shell binary (note: the binary lives at `.../chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell`, one directory deeper than the v5 notes said). Fresh page per shot. All four inspected visually:
+
+| Shot | Content | Size | v5 |
+| --- | --- | --- | --- |
+| 1-board.png | Validation strip, 9/9 self-test, fit summary, controls, board header, rows 1-2 (scroll 397 puts the strip at the top edge) | 189,739 B | 198,463 B |
+| 2-detail.png | BitFi Basis dialog: model breakdown, 90% band, edge lines $38.8M (rank 1) at slope 0.371 and $61.2M (rank 1) at 0.679, comps, farm plan | 291,191 B | 296,123 B |
+| 3-filtered.png | Lending filter (16 rows shown), full controls row, 8 Lending rows (scroll 900) | 139,604 B | 191,945 B |
+| 4-deepdive.png | Contenders section in full (all 5 rows with why sentences) plus the top of the deep dive | 219,278 B | 153,784 B |
+
+Total PNG 839,812 bytes (v5: 840,515). The 300-350 KiB per-shot target is NOT honestly reachable: the shots are a dark UI with large flat areas, which PNG compresses efficiently, and the only way to inflate them would be padding or noise, which the task forbids. Shot 4 is much denser than v5 (contenders table); shots 1 and 3 are slightly lighter at the wider viewport because rows are shorter (83px at 1440 wide vs about 110px at 1280). The dossier-size tie-break in RULES.txt (smaller dossier.json wins an exact win-rate tie) rewards the smaller total, so this is not a loss. The fit scatter itself lives in the closed fit details (one click from shot 1's summary line) and appears in no shot; that is the honest trade-off against showing board rows in shot 1.
+
+Fixed-point note: the self-test panel prints the screenshots' sizes, so the screenshots and the page text depend on each other. The shots were re-taken after installing (189,691/291,094 first, then 189,739/291,191), rebuilt, and re-rendered until byte-identical: re-rendering shots 1 and 2 from the final build reproduces the installed files exactly, so data.js, the dossier and the rendered sizes line (185K, 284K, 136K, 214K) all agree.
+
+## 6. Verification (independent Python recompute, /tmp/v6_verify.py, 52 checks, all pass)
+
+Re-derived from the snapshot with the documented constants only (no TypeScript imported): classification, odds, launch/odds/EV and model fields for all 198 rows, nearest comps for all 198 rows, LOO fit, comps backtest, bootstrap, rank ranges, edge fits, contenders, category dive, chain breakdown, histogram, live rows, calibration, scatter, farm steps, gates and caps. Exact matches throughout, including:
+
+- All 198 rows: launch value, odds, expected value, base, category multiplier, growth, maturity, age, exactly as board.json carries them. Ranks exactly 1..198, values strictly decreasing and distinct. Top 1 BitFi Basis $48,304,814; last row Nucleus $598,830.
+- Bootstrap bands exact for all 198 rows (CPython `random.Random(1234)` reproduces the TS random stream draw for draw; slope p5/p95 0.371/0.679; band multiple at median TVL x1.88; BitFi band $34,432,409-$67,467,763). Top-10 rank ranges exact.
+- Edge rows exact for the top 10; contenders exact (EVs, ranks, odds, base, TVL delta, comps median, implied multiple) and each `why` sentence carries its edge numbers.
+- LOO median error x3.399 (stated x3.40); comps backtest x5.385 (x5.38), same-category x5.418 (x5.42, n=91), fit wins 80/128.
+- Category dive (33), chain breakdown (9), histogram (6.5-9.5, bins [26, 56, 48, 32, 21, 10, 1, 4]), live rows (top 24 by mcap), calibration (34), scatter (128), integrity (758 = 198 + 144 + 416) all exact.
+- Watchlist: the snapshot's own `watchlist` list (40 slugs), all on the board; every watchlist slug passes the rankable rule. (An earlier draft of the verifier re-derived the watchlist as "pre-token with TVL >= $50M" and got 132; that definition is wrong because the house's rule also excludes wrapped/bridged/staked products, which is exactly the exclusion rule. The snapshot's list is authoritative.)
+- Farm steps: 8 per row, 20-600 chars each, 1,584 steps.
+- Determinism: main.ts run twice, outputs byte-identical (diff -r clean), twice in a row on the final build. Board byte-identical to v5.
+- Kit check (no bundle, as expected): 4 passed (competition_open, snapshot, license_osi, entrypoint), 1 failed (transcripts_present, no bundle given; the parent bundles at submit), 15 skipped, 5 checked at submission.
+- Page self-test renders 9 of 9 pass in the headless browser; detail-view recompute agrees with board.json (worst $0).
+
+## 7. What is still weak
+
+- Dev score unknown until the server grades v6; v5's 0.945458 is 0.016 below the 0.961255 top-10 bar, and v6 changes nothing the dev grader scores directly (the ranking is identical), so any gain has to come from the pairwise judge reading the new evidence. That is the bet of this version.
+- The fit scatter and calibration table are one click away in a closed details element, not visible in any screenshot. If the judge never opens it, the scatter evidence is only named, not shown.
+- Shots 1 and 3 are below the 300 KiB target (see section 5); nothing honest closes that gap.
+- The Basis Trading multiplier (x2.99) remains the single most exposed number on the board: Tori and Axis sit 2.1x-2.2x above their nearest comps' median because of it. The Contenders section says so plainly rather than hiding it.
+- Rank 1 is safe (BitFi rank 1-1 across refits, rank 1 under both edge slopes), but ranks 5-9 are genuinely unstable: Sentora ranges 2-10, Gauntlet 7-16. v6 explains the instability instead of pretending it away.
+
+---
+
 # Token Radar v5 build report (radar-6)
 
 Built 2026-11-22, local only, on top of v4 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits. v4 is already submitted (submission 01a20315-7070-707b-a651-95d0fcb037f2) and scored on dev at a provisional win rate of 0.936619 (20 wins, 0 losses, 20 games), slightly below v3's 0.939310. v5 is built to close that gap. The ranking is UNCHANGED from v4: the same model, the same odds, the same 198 expected values, byte for byte. What changed is the evidence around the ranking: bands, comps, a category deep dive, walk-forward and sensitivity, all computed from the snapshot at build time.

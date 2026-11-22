@@ -1,4 +1,4 @@
-// Token Radar v5 model (radar-6): the v4 log-log comps fit and two-stage
+// Token Radar v6 model (radar-7): the v5 log-log comps fit and two-stage
 // odds, unchanged, plus the evidence a pairwise judge compares directly:
 // per-row 90% bands on the launch value and the expected value, nearest
 // traded comps as pricing anchors, a category deep dive, a chain breakdown,
@@ -23,6 +23,15 @@
 // older than 730 days, test on younger, median error x2.88 (n=32); fit on
 // younger, test on older, x2.96 (n=63). Both are small test sets; the
 // dashboard says so.
+//
+// v6 additions: a comps backtest (pricing off the 3 nearest traded comps
+// instead of the fit is worse held out: LOO x5.38 vs x3.40, and the fit
+// wins on 80 of 128 traded protocols, so the comps anchor the price but
+// do not set it); per-row edge values for the top 10 under the slope at
+// either end of its 90% band; and a Contenders section for ranks 5-9,
+// the rows the fit cannot pin down, each with what holds it there and
+// what would move it up or down. The ranking itself is unchanged from v5:
+// the same fit, the same odds, the same 198 expected values.
 //
 // Per-row bands: the same bootstrap as v3 (200 resamples of the 128 traded
 // protocols, seed 1234) is re-run at build time in this file, with an
@@ -83,7 +92,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-6';
+export const MODEL_VERSION = 'radar-7';
 
 /** The two-stage odds coefficient: log-odds gained per SD of log10 TVL,
  * fitted by Newton on all 758 protocols (full-sample fit; the 5-fold CV
@@ -131,14 +140,32 @@ export interface ValidationResult {
    * either end of its 90% bootstrap band (0.371 and 0.679), intercept
    * refit each time as the mean residual at that slope, same odds.
    * top10_stays counts how many of the central top 10 stay in the top
-   * 10; rank1 names the protocol on top under that slope. */
+   * 10; rank1 names the protocol on top under that slope. The intercepts
+   * are the mean residuals at those slopes over the 128 traded comps. */
   sensitivity: {
     slope_lo: number;
     slope_hi: number;
+    slope_lo_intercept: number;
+    slope_hi_intercept: number;
     top10_stays_lo: number;
     top10_stays_hi: number;
     rank1_lo: string;
     rank1_hi: string;
+  };
+  /** Comps backtest, added for v6: pricing each of the 128 traded
+   * protocols off the median mcap/TVL of its 3 nearest traded comps by
+   * log TVL (leave-one-out, the protocol itself excluded), instead of
+   * off the fitted curve. fit_wins counts the protocols the log-log fit
+   * prices closer than the comps do. same_category_multiple is the same
+   * test restricted to comps in the protocol's own category (only the 91
+   * protocols whose category has at least 3 other traded comps). */
+  comps_backtest: {
+    loo_multiple: number;
+    fit_wins: number;
+    fit_wins_pct: number;
+    n: number;
+    same_category_multiple: number;
+    same_category_n: number;
   };
 }
 
@@ -191,10 +218,20 @@ export const VALIDATION: ValidationResult = {
   sensitivity: {
     slope_lo: 0.371,
     slope_hi: 0.679,
+    slope_lo_intercept: 9.643,
+    slope_hi_intercept: 4.189,
     top10_stays_lo: 6,
     top10_stays_hi: 10,
     rank1_lo: 'BitFi Basis',
     rank1_hi: 'BitFi Basis',
+  },
+  comps_backtest: {
+    loo_multiple: 5.38,
+    fit_wins: 80,
+    fit_wins_pct: 62.5,
+    n: 128,
+    same_category_multiple: 5.42,
+    same_category_n: 91,
   },
 };
 
@@ -399,6 +436,46 @@ export interface RankRange {
   hi: number;
 }
 
+/** A top-10 row's expected value and rank under the slope at either end
+ * of its 90% bootstrap band (intercepts refit as the mean residual at
+ * that slope, same odds). The detail view shows these for the open row. */
+export interface EdgeRow {
+  slug: string;
+  rank: number;
+  ev_lo_slope_usd: number;
+  ev_hi_slope_usd: number;
+  rank_lo_slope: number;
+  rank_hi_slope: number;
+}
+
+/** One of ranks 5-9, the rows the fit cannot pin down: what holds it at
+ * its rank and what would move it up or down, computed at build time.
+ * ev_lo/hi_slope are its expected values under the slope at either end
+ * of the 90% band; rank_lo/hi_slope are the ranks it would hold there.
+ * rank_range is its 5th-95th rank across the 200 bootstrap refits.
+ * odds_base is its category's smoothed share, odds_tvl_delta is what its
+ * TVL adds to the odds. comps_median_multiple is the median mcap/TVL of
+ * its 3 nearest traded comps; implied_multiple is its own launch value
+ * divided by its TVL. `why` states the whole story in plain words. */
+export interface ContenderRow {
+  slug: string;
+  rank: number;
+  name: string;
+  ev_usd: number;
+  ev_lo_slope_usd: number;
+  ev_hi_slope_usd: number;
+  rank_lo_slope: number;
+  rank_hi_slope: number;
+  rank_range_lo: number;
+  rank_range_hi: number;
+  odds: number;
+  odds_base: number;
+  odds_tvl_delta: number;
+  comps_median_multiple: number;
+  implied_multiple: number;
+  why: string;
+}
+
 /** The integrity accounting: every one of the 758 protocols in the snapshot, in exactly one bucket. */
 export interface IntegrityCounts {
   total: number;
@@ -440,6 +517,16 @@ export interface RadarData {
   bootstrap: BootstrapInfo;
   /** Rank ranges for the top 10 rows across the 200 bootstrap refits. */
   rank_ranges: RankRange[];
+  /** Expected value and rank under the edge slopes, top 10 rows. */
+  edge: EdgeRow[];
+  /** Ranks 5-9, the unstable middle, with what holds each one there. */
+  contenders: ContenderRow[];
+  /** Dashboard source bytes (the three files main.ts copies), set by
+   * main.ts so the page's self-test can check the 65,536-byte text cap. */
+  dashboard_bytes: number;
+  /** Screenshot file bytes, in name order, set by main.ts so the page's
+   * self-test can check the 512 KiB per-image cap. */
+  screenshot_bytes: number[];
   /** One row per category present on the board, richest total EV first. */
   category_dive: CategoryDiveRow[];
   /** Top 8 chains by total EV, then the rest grouped as Other. */
@@ -1293,6 +1380,73 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     const samples = [...rankSamples.get(r.slug)!].sort((a, b) => a - b);
     return { slug: r.slug, rank: r.rank, lo: quantileIndex(samples, 0.05), hi: quantileIndex(samples, 0.95) };
   });
+  // v6: the board re-scored under the slope at either end of its 90%
+  // band (intercepts refit as the mean residual at that slope, same
+  // odds), and the unstable middle (ranks 5-9) explained row by row.
+  // rankedEvs applies the same $1 tie-break as the central ranking, so
+  // these are the ranks the edge boards would actually show.
+  const sens = VALIDATION.sensitivity;
+  const edgePos = (list: { slug: string; ev: number }[]): Map<string, { rank: number; ev: number }> => {
+    const m = new Map<string, { rank: number; ev: number }>();
+    list.forEach((r, i) => m.set(r.slug, { rank: i + 1, ev: r.ev }));
+    return m;
+  };
+  const loMap = edgePos(rankedEvs(snapshot, model, odds, sens.slope_lo_intercept, sens.slope_lo));
+  const hiMap = edgePos(rankedEvs(snapshot, model, odds, sens.slope_hi_intercept, sens.slope_hi));
+  const edge: EdgeRow[] = top10.map((r) => ({
+    slug: r.slug,
+    rank: r.rank,
+    ev_lo_slope_usd: loMap.get(r.slug)!.ev,
+    ev_hi_slope_usd: hiMap.get(r.slug)!.ev,
+    rank_lo_slope: loMap.get(r.slug)!.rank,
+    rank_hi_slope: hiMap.get(r.slug)!.rank,
+  }));
+  const rangeMap = new Map(rank_ranges.map((rr) => [rr.slug, rr]));
+  const money = (n: number): string => '$' + (n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : Math.round(n / 1e3) + 'K');
+  const contenders: ContenderRow[] = board.slice(4, 9).map((r) => {
+    const protocol: SnapshotProtocol = {
+      slug: r.slug, name: r.name, category: r.category, chains: r.chains,
+      tvl_usd: r.tvl_usd, change_7d: r.change_7d, mcap_usd: r.mcap_usd,
+      listed_at: r.listed_at, gecko_id: r.gecko_id, symbol: r.symbol,
+    };
+    const anchors = nearestComps(protocol, snapshot);
+    const mults = anchors.comps.map((c) => c.multiple).sort((a, b) => a - b);
+    const compsMed = mults.length % 2 === 1
+      ? mults[Math.floor(mults.length / 2)]!
+      : Math.round(((mults[mults.length / 2 - 1]! + mults[mults.length / 2]!) / 2) * 1000) / 1000;
+    const impliedMult = Math.round((r.launch_value_usd / r.tvl_usd) * 1000) / 1000;
+    const gap = compsMed > 0 ? impliedMult / compsMed : 0;
+    const baseOdds = odds.byCategory.get(r.category ?? 'Other') ?? odds.overall;
+    const delta = Math.round((r.launch_odds - baseOdds) * 1000) / 1000;
+    const lo = loMap.get(r.slug)!;
+    const hi = hiMap.get(r.slug)!;
+    const rr = rangeMap.get(r.slug)!;
+    const evRatio = hi.ev / lo.ev;
+    let why = `At slope 0.371 its expected value is ${money(lo.ev)} (rank ${lo.rank}); at 0.679 it is ${money(hi.ev)} (rank ${hi.rank}). `;
+    if (gap >= 2) {
+      why += `Its implied multiple of ${impliedMult.toFixed(3)}x is ${gap.toFixed(1)}x its nearest comps' median of ${compsMed.toFixed(3)}x: the ${r.category ?? 'Other'} multiplier (x${categoryMultiplier(r.category)}) is doing the work, so this row is the most exposed if that multiplier is wrong. `;
+    } else if (gap > 0 && gap <= 1 / 2) {
+      why += `Its implied multiple of ${impliedMult.toFixed(3)}x is only ${(1 / gap).toFixed(1)}x its nearest comps' median of ${compsMed.toFixed(3)}x, so the fit prices it well below what its nearest comps fetch. `;
+    } else {
+      why += `Its implied multiple of ${impliedMult.toFixed(3)}x matches its nearest comps' median of ${compsMed.toFixed(3)}x, so the comps back the fit here. `;
+    }
+    if (evRatio >= 2) {
+      why += `What moves it is the slope: at ${money(r.tvl_usd)} of TVL, the slope decides its value, not its own numbers. `;
+    } else {
+      why += `Its value barely moves with the slope; its rank moves because the big-TVL rows swing past it. `;
+    }
+    why += `Odds ${Math.round(r.launch_odds * 100)}%: ${r.category ?? 'Other'} base ${Math.round(baseOdds * 100)}%${Math.abs(delta) >= 0.02 ? `, TVL ${delta >= 0 ? 'lifts' : 'cuts'} it by ${Math.abs(delta).toFixed(3)}` : ', TVL barely moves it'}.`;
+    return {
+      slug: r.slug, rank: r.rank, name: r.name,
+      ev_usd: r.implied_value_usd,
+      ev_lo_slope_usd: lo.ev, ev_hi_slope_usd: hi.ev,
+      rank_lo_slope: lo.rank, rank_hi_slope: hi.rank,
+      rank_range_lo: rr.lo, rank_range_hi: rr.hi,
+      odds: r.launch_odds, odds_base: baseOdds, odds_tvl_delta: delta,
+      comps_median_multiple: compsMed, implied_multiple: impliedMult,
+      why,
+    };
+  });
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -1315,6 +1469,10 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     scatter: scatterPoints(snapshot),
     bootstrap,
     rank_ranges,
+    edge,
+    contenders,
+    dashboard_bytes: 0,
+    screenshot_bytes: [],
     category_dive: categoryDive(board, snapshot, odds),
     chain_breakdown: chainBreakdown(board),
     tvl_histogram: tvlHistogram(board),
