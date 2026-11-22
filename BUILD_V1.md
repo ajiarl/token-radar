@@ -73,7 +73,7 @@ Expected values run $48,304,814 (rank 1) down to $598,830 (rank 198, Nucleus). S
 
 Run from the repo directory: `mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../token-radar-01-kit/input/snapshot.json` (Node v24.22.1).
 
-- Board: 198 rows; ranks exactly 1..198; expected values strictly decreasing and all distinct; watchlist 40/40; farm steps 8 per row, all 124-386 chars (gate 20-600); board.json 401,490 bytes.
+- Board: 198 rows; ranks exactly 1..198; expected values strictly decreasing and all distinct; watchlist 40/40; farm steps 8 per row, all 124-364 chars (gate 20-600); board.json 401,490 bytes.
 - Determinism: ran twice into `out/` and `out2/`, `diff -r` clean, byte-for-byte identical (then `out2/` removed).
 - Independent Python recompute of all 198 rows (launch value from the log-log fit, two-stage odds from the shipped odds_model and odds_base, EV = launch x odds): 0 mismatches.
 - Dossier: 800,712 bytes (limit 1.5 MiB); dossier text 50,728 bytes (limit 65,536).
