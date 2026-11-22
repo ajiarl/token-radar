@@ -120,7 +120,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-8';
+export const MODEL_VERSION = 'radar-9';
 
 /** The two-stage odds coefficient: log-odds gained per SD of log10 TVL,
  * fitted by Newton on all 758 protocols (full-sample fit; the 5-fold CV
@@ -508,32 +508,28 @@ export interface EdgeRow {
   rank_hi_slope: number;
 }
 
-/** One of ranks 5-9, the rows the fit cannot pin down: what holds it at
- * its rank and what would move it up or down, computed at build time.
- * ev_lo/hi_slope are its expected values under the slope at either end
- * of the 90% band; rank_lo/hi_slope are the ranks it would hold there.
- * rank_range is its 5th-95th rank across the 200 bootstrap refits.
- * odds_base is its category's smoothed share, odds_tvl_delta is what its
- * TVL adds to the odds. comps_median_multiple is the median mcap/TVL of
- * its 3 nearest traded comps; implied_multiple is its own launch value
- * divided by its TVL. `why` states the whole story in plain words. */
-export interface ContenderRow {
+/** One of the top 20 rows: the smallest launch-value change that flips
+ * it with the neighbour above or below, in $ and %. flip_up is null on
+ * rank 1. Computed from the shipped EVs, launch values and odds: to pass
+ * the row above, the row's EV must reach the neighbour's EV + $1; to
+ * fall below, it must drop to the neighbour's EV - $1. */
+export interface FlipRow {
   slug: string;
   rank: number;
   name: string;
   ev_usd: number;
-  ev_lo_slope_usd: number;
-  ev_hi_slope_usd: number;
-  rank_lo_slope: number;
-  rank_hi_slope: number;
-  rank_range_lo: number;
-  rank_range_hi: number;
-  odds: number;
-  odds_base: number;
-  odds_tvl_delta: number;
-  comps_median_multiple: number;
-  implied_multiple: number;
-  why: string;
+  launch_value_usd: number;
+  flip_up: { usd: number; pct: number } | null;
+  flip_down: { usd: number; pct: number } | null;
+}
+
+/** One tornado row: how far the top-10 total expected value moves when
+ * one assumption changes, each end re-ranked from the snapshot.
+ * tornado_base_usd is the central top-10 total. */
+export interface TornadoRow {
+  label: string;
+  lo_usd: number;
+  hi_usd: number;
 }
 
 /** The integrity accounting: every one of the 758 protocols in the snapshot, in exactly one bucket. */
@@ -581,8 +577,14 @@ export interface RadarData {
   rank_ranges: RankRange[];
   /** Expected value and rank under the edge slopes, top 10 rows. */
   edge: EdgeRow[];
-  /** Ranks 5-9, the unstable middle, with what holds each one there. */
-  contenders: ContenderRow[];
+  /** Flip thresholds for the top 20 rows. */
+  flips: FlipRow[];
+  /** Tornado: top-10 total EV under each changed assumption. */
+  tornado: TornadoRow[];
+  /** Central top-10 total expected value, the tornado's base and the cover verdict's total. */
+  tornado_base_usd: number;
+  /** Top-10 total expected value, for the cover verdict. */
+  top10_ev_usd: number;
   /** Dashboard source bytes (the three files main.ts copies), set by
    * main.ts so the page's self-test can check the 65,536-byte text cap. */
   dashboard_bytes: number;
@@ -631,6 +633,15 @@ export function maturityMultiplier(age: number | null): number {
   return 0.85;
 }
 
+/** Diagnostic overrides for the tornado chart: recompute a launch value
+ * with one assumption switched off, without touching the shipped model.
+ * The shipped board never passes overrides. */
+export interface LaunchOverrides {
+  catMult?: number;
+  growthMult?: number;
+  maturityMult?: number;
+}
+
 /** A protocol's launch value under one log-log fit (intercept, exponent),
  * with the same category, growth and maturity multipliers as impliedValue.
  * The central fit is MODEL's 7.034 / 0.516; the bootstrap and the
@@ -641,13 +652,14 @@ export function launchValueFor(
   model: ModelConstants,
   intercept: number,
   exponent: number,
+  over?: LaunchOverrides,
 ): { launch: number; base: number; catMult: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
-  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
-  const maturityMult = maturityMultiplier(age);
-  const catMult = categoryMultiplier(protocol.category);
+  const growthMult = over?.growthMult ?? 1 + (growthPct / 100) * model.growth_weight;
+  const maturityMult = over?.maturityMult ?? maturityMultiplier(age);
+  const catMult = over?.catMult ?? categoryMultiplier(protocol.category);
   const base = Math.exp(intercept) * Math.pow(Math.max(1, protocol.tvl_usd), exponent);
   const launch = Math.max(1, Math.min(model.implied_cap_usd, Math.round(base * catMult * growthMult * maturityMult)));
   return { launch, base: Math.round(base), catMult, growthPct, growthMult, maturityMult, age };
@@ -999,11 +1011,12 @@ export function rankedEvs(
   odds: { byCategory: Map<string, number>; overall: number; oddsModel: OddsModel },
   intercept: number,
   exponent: number,
+  over?: LaunchOverrides,
 ): { slug: string; ev: number }[] {
   const rows = snapshot.protocols
     .filter(isRankable)
     .map((p) => {
-      const launch = launchValueFor(p, snapshot.as_of, model, intercept, exponent).launch;
+      const launch = launchValueFor(p, snapshot.as_of, model, intercept, exponent, over).launch;
       const baseOdds = odds.byCategory.get(p.category ?? 'Other') ?? odds.overall;
       const oddsValue = twoStageOdds(baseOdds, p.tvl_usd, odds.oddsModel);
       return { slug: p.slug, ev: Math.max(1, Math.round(launch * oddsValue)) };
@@ -1287,6 +1300,40 @@ export function netVerdict(p: SnapshotProtocol, age: number | null, expectedValu
   return `${call} Total gas about $${gasTotal} across ${FARM_TX_COUNT} transactions on ${chain}; $${capital} of capital at risk for ${hold} days. Your share of any launch is unknown, so treat this as a lottery ticket, not an investment, and only spend gas you can lose.`;
 }
 
+/** The farm verdict one row carries in the board table, from the same
+ * inputs as netVerdict's call: SKIP is a long shot (odds under 30%),
+ * FARM is a cheap ticket (odds 60% or better and gas under $40), THIN
+ * is the rest. The 8th farm step says the same thing in words. */
+export function farmVerdict(odds: number, gasTotal: number): 'FARM' | 'THIN' | 'SKIP' {
+  if (odds < 0.3) return 'SKIP';
+  if (odds >= 0.6 && gasTotal < 40) return 'FARM';
+  return 'THIN';
+}
+
+/** Break-even deposit: the deposit at which the farm's gas is 1% of the
+ * deposit itself. Gas is under 0.007% of every row's expected value, so
+ * a deposit defined against expected value would be $0 on all 198 rows
+ * and would say nothing; the deposit is the honest scale that moves. */
+export function breakEvenDeposit(gasTotal: number): number {
+  return Math.round(100 * gasTotal);
+}
+
+/** Active hours one farm takes: setup (5 + 15 + 10 minutes), one
+ * 10-minute action a week for the hold, and 10 + 5 minutes to check and
+ * log. The hold itself is waiting, not work. */
+export function activeHours(age: number | null): number {
+  const hold = holdDaysFor(age);
+  const weeks = Math.ceil(hold / 7);
+  return (45 + 10 * weeks) / 60;
+}
+
+/** Expected value per active hour, net of gas: the protocol-level
+ * expected value over the hours the farm takes. Your share of any
+ * launch is unknown, so this compares rows, it is not income. */
+export function dollarsPerHour(expectedValue: number, gasTotal: number, age: number | null): number {
+  return Math.max(0, Math.round((expectedValue - gasTotal) / activeHours(age)));
+}
+
 /** The category's main action, in the words a farmer can follow. */
 function actionFor(p: SnapshotProtocol, capital: number, chain: string): string {
   const c = (p.category ?? '').toLowerCase();
@@ -1491,52 +1538,44 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     rank_lo_slope: loMap.get(r.slug)!.rank,
     rank_hi_slope: hiMap.get(r.slug)!.rank,
   }));
-  const rangeMap = new Map(rank_ranges.map((rr) => [rr.slug, rr]));
-  const money = (n: number): string => '$' + (n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : Math.round(n / 1e3) + 'K');
-  const contenders: ContenderRow[] = board.slice(4, 9).map((r) => {
-    const protocol: SnapshotProtocol = {
-      slug: r.slug, name: r.name, category: r.category, chains: r.chains,
-      tvl_usd: r.tvl_usd, change_7d: r.change_7d, mcap_usd: r.mcap_usd,
-      listed_at: r.listed_at, gecko_id: r.gecko_id, symbol: r.symbol,
-    };
-    const anchors = nearestComps(protocol, snapshot);
-    const mults = anchors.comps.map((c) => c.multiple).sort((a, b) => a - b);
-    const compsMed = mults.length % 2 === 1
-      ? mults[Math.floor(mults.length / 2)]!
-      : Math.round(((mults[mults.length / 2 - 1]! + mults[mults.length / 2]!) / 2) * 1000) / 1000;
-    const impliedMult = Math.round((r.launch_value_usd / r.tvl_usd) * 1000) / 1000;
-    const gap = compsMed > 0 ? impliedMult / compsMed : 0;
-    const baseOdds = odds.byCategory.get(r.category ?? 'Other') ?? odds.overall;
-    const delta = Math.round((r.launch_odds - baseOdds) * 1000) / 1000;
-    const lo = loMap.get(r.slug)!;
-    const hi = hiMap.get(r.slug)!;
-    const rr = rangeMap.get(r.slug)!;
-    const evRatio = hi.ev / lo.ev;
-    let why = `At slope 0.370 its expected value is ${money(lo.ev)} (rank ${lo.rank}); at 0.634 it is ${money(hi.ev)} (rank ${hi.rank}). `;
-    if (gap >= 2) {
-      why += `Its implied multiple of ${impliedMult.toFixed(3)}x is ${gap.toFixed(1)}x its nearest comps' median of ${compsMed.toFixed(3)}x: the ${r.category ?? 'Other'} multiplier (x${categoryMultiplier(r.category)}) is doing the work, so this row is the most exposed if that multiplier is wrong. `;
-    } else if (gap > 0 && gap <= 1 / 2) {
-      why += `Its implied multiple of ${impliedMult.toFixed(3)}x is only ${(1 / gap).toFixed(1)}x its nearest comps' median of ${compsMed.toFixed(3)}x, so the fit prices it well below what its nearest comps fetch. `;
-    } else {
-      why += `Its implied multiple of ${impliedMult.toFixed(3)}x matches its nearest comps' median of ${compsMed.toFixed(3)}x, so the comps back the fit here. `;
-    }
-    if (evRatio >= 2) {
-      why += `What moves it is the slope: at ${money(r.tvl_usd)} of TVL, the slope decides its value, not its own numbers. `;
-    } else {
-      why += `Its value barely moves with the slope; its rank moves because the big-TVL rows swing past it. `;
-    }
-    why += `Odds ${Math.round(r.launch_odds * 100)}%: ${r.category ?? 'Other'} base ${Math.round(baseOdds * 100)}%${Math.abs(delta) >= 0.02 ? `, TVL ${delta >= 0 ? 'lifts' : 'cuts'} it by ${Math.abs(delta).toFixed(3)}` : ', TVL barely moves it'}.`;
-    return {
-      slug: r.slug, rank: r.rank, name: r.name,
-      ev_usd: r.implied_value_usd,
-      ev_lo_slope_usd: lo.ev, ev_hi_slope_usd: hi.ev,
-      rank_lo_slope: lo.rank, rank_hi_slope: hi.rank,
-      rank_range_lo: rr.lo, rank_range_hi: rr.hi,
-      odds: r.launch_odds, odds_base: baseOdds, odds_tvl_delta: delta,
-      comps_median_multiple: compsMed, implied_multiple: impliedMult,
-      why,
-    };
+  // v8: flip thresholds for the top 20 — the smallest launch-value
+  // change that flips a row with the neighbour above or below, from the
+  // shipped EVs, launch values and odds. To pass the row above, the
+  // row's EV must reach the neighbour's EV + $1; to fall below, it must
+  // drop to the neighbour's EV - $1. Rank 1 has no row above.
+  const flips: FlipRow[] = board.slice(0, 20).map((r, i) => {
+    const above = i > 0 ? board[i - 1]! : null;
+    const below = i < board.length - 1 ? board[i + 1]! : null;
+    const flipUp = above === null ? null : (() => {
+      const usd = Math.max(1, Math.ceil((above.implied_value_usd + 1) / r.launch_odds) - r.launch_value_usd);
+      return { usd, pct: Math.round((usd / r.launch_value_usd) * 1000) / 10 };
+    })();
+    const flipDown = below === null ? null : (() => {
+      const usd = Math.max(1, r.launch_value_usd - Math.floor((below.implied_value_usd - 1) / r.launch_odds));
+      return { usd, pct: Math.round((usd / r.launch_value_usd) * 1000) / 10 };
+    })();
+    return { slug: r.slug, rank: r.rank, name: r.name, ev_usd: r.implied_value_usd, launch_value_usd: r.launch_value_usd, flip_up: flipUp, flip_down: flipDown };
   });
+  // v8: tornado — how far the top-10 total expected value moves when
+  // one assumption changes, each scenario re-ranked from the snapshot.
+  // Slope ends reuse the edge boards; the other scenarios switch one
+  // term off (multipliers, growth, maturity, the odds TVL term).
+  // The shipped board never passes overrides.
+  const top10Total = top10.reduce((a, r) => a + r.implied_value_usd, 0);
+  const top10Of = (list: { slug: string; ev: number }[]): number => list.slice(0, 10).reduce((a, r) => a + r.ev, 0);
+  const tSlopeLo = top10Of(rankedEvs(snapshot, model, odds, sens.slope_lo_intercept, sens.slope_lo));
+  const tSlopeHi = top10Of(rankedEvs(snapshot, model, odds, sens.slope_hi_intercept, sens.slope_hi));
+  const tMultOff = top10Of(rankedEvs(snapshot, model, odds, MODEL.log_intercept, MODEL.log_tvl_exponent, { catMult: 1 }));
+  const tGrowthOff = top10Of(rankedEvs(snapshot, model, odds, MODEL.log_intercept, MODEL.log_tvl_exponent, { growthMult: 1 }));
+  const tMaturityOff = top10Of(rankedEvs(snapshot, model, odds, MODEL.log_intercept, MODEL.log_tvl_exponent, { maturityMult: 1 }));
+  const tOddsCatOnly = top10Of(rankedEvs(snapshot, model, { ...odds, oddsModel: { ...odds.oddsModel, log_tvl_coef: 0 } }, MODEL.log_intercept, MODEL.log_tvl_exponent));
+  const tornado: TornadoRow[] = [
+    { label: 'Slope 0.370-0.634', lo_usd: Math.min(tSlopeLo, tSlopeHi), hi_usd: Math.max(tSlopeLo, tSlopeHi) },
+    { label: 'Category multipliers off', lo_usd: Math.min(tMultOff, top10Total), hi_usd: Math.max(tMultOff, top10Total) },
+    { label: 'Growth weight off', lo_usd: Math.min(tGrowthOff, top10Total), hi_usd: Math.max(tGrowthOff, top10Total) },
+    { label: 'Maturity off', lo_usd: Math.min(tMaturityOff, top10Total), hi_usd: Math.max(tMaturityOff, top10Total) },
+    { label: 'Odds, category only', lo_usd: Math.min(tOddsCatOnly, top10Total), hi_usd: Math.max(tOddsCatOnly, top10Total) },
+  ].sort((a, b) => (b.hi_usd - b.lo_usd) - (a.hi_usd - a.lo_usd) || (a.label < b.label ? -1 : 1));
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -1560,7 +1599,10 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     bootstrap,
     rank_ranges,
     edge,
-    contenders,
+    flips,
+    tornado,
+    tornado_base_usd: top10Total,
+    top10_ev_usd: top10Total,
     dashboard_bytes: 0,
     screenshot_bytes: [],
     category_dive: categoryDive(board, snapshot, odds),

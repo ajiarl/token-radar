@@ -1,3 +1,54 @@
+# Token Radar v8 build report (radar-9)
+
+Built 2026-11-22, local only, on top of v7 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits when quota resets 2026-11-23 (5/day, 5 total left). v8 is a LAYOUT redesign only: the model (fit, odds, ranking, EVs) is EXACTLY v7. Board.json is byte-identical to v7 (sha256 9bddcfefc61fe957300eb46c84c870b7f7781abb13e6e8886d69e1aebec0dc74); top 1 BitFi Basis $47,670,553, top-10 total $306,273,691, 198 rows, watchlist 40/40. The independent verifier (/tmp/v8_verify.py, 87 checks, 0 failures) recomputes all 198 rows from the snapshot and matches board.json, data.js and dossier.json exactly.
+
+## v8.1. What changed per shot
+
+Four screenshots, kept at 4 (not 3): RULES.txt describes the three canonical shots as board/detail/filtered and the detail view is one of the five judge criteria, so the detail shot stays and the deep-dive content folds into shot 2 instead of being dropped.
+
+- Shot 1, cover (1-cover.jpg): the lede is now a one-line verdict, "BitFi Basis is the most valuable plausible launch: $47.7M expected (90% $34.6M-$67.4M); the top 10 are worth $306.3M combined", plus the top 3 and the facts column (top-10 combined, watchlist 40/40, 198 rows, 144 excluded, 24 live set aside). The self-test strip now carries the deliberately-failing control: "9 of 9 checks pass · 1 control fails as expected", with the control shown red as "✗ Control: a flat multiple beats the fit — flat LOO x4.81 vs fit x3.36 — fails, as it should". The control logic was fixed during the build: the first version had the comparison inverted (it would have shown a green pass if the fit ever lost to the flat multiple); it now reads `flat LOO > fit LOO` as "fails, as it should".
+- Shot 2, proof (2-proof.jpg): new #proof section, two columns. Left: the comps curve (inline SVG) and the held-out validation table (the old validation paragraph, same numbers, as a compact 8-row table: LOO x3.36, 5-fold/10-fold x3.40/x3.34, flat multiples, 14 alternatives, comps backtest, time-split, odds CV, slope ends). Right: the tornado chart (inline SVG, top of the column so it is in frame) and the flip-threshold table for the top 20. The calibration table follows below the fold. The Contenders section (ranks 5-9) is gone: the flips table says the same thing for the top 20, in numbers.
+- Shot 3, farm (3-farm.jpg): the board table with three new columns: Verdict badge (FARM/THIN/SKIP), Break-even deposit, $/h. The caption states all three definitions in one line. The old Token column ("records no token" on every row) is gone.
+- Shot 4, detail (4-detail.jpg): rank 1 dialog, unchanged in structure, plus a "Flip point" line in the model breakdown ("rank 1: nothing above · −28.1% to fall to #2").
+
+Section headings are claims now: "Basis Trading holds the most expected value" (deep dive), "The curve beats a flat multiple, and the top of the board is fragile where it counts" (proof), "The fit beats a flat multiple held out" (validation table), "One function prices every row" (model panel). The sandbox slider was skipped: no byte budget left for it and the static shots already carry the story.
+
+## v8.2. Flip thresholds
+
+Computed by main.ts in buildRadar, shipped in data.js `flips` (20 rows). For row i, to pass the neighbour above its EV must reach the neighbour's EV + $1; to fall below, it must drop to the neighbour's EV − $1. Odds do not change with launch value (they depend on category and TVL), so the launch-value change is (target EV − current EV) / odds, with ceil for the rise and floor for the fall, at least $1; pct is the change over the row's launch value, rounded to 1 decimal. Exact samples (verifier recomputes all 20 from board.json): rank 1 BitFi down −28.1% (−$20,957,804); rank 2 USDD up +39.2% (+$21,952,527), down −6.0% (−$3.4M); ranks 3/4 flip on $5,292 (dTAO down −0.0%) and $8,530 (Veda up +0.0%). The page shows exact dollars under $1M ($5,292, not $5K) via fmtFlip; the detail view carries the same line per row for the top 20.
+
+## v8.3. Tornado chart
+
+Computed by main.ts, shipped in data.js `tornado` (5 rows) + `tornado_base_usd` = top-10 total $306,273,691. Each scenario re-ranks all 198 rows from the snapshot and sums the new top 10: slope ends (intercepts 9.623/4.949 refit at slopes 0.370/0.634), category multipliers off, growth weight off, maturity off, odds category-only (TVL coefficient 0). Ranges, verifier-recomputed exactly: slope $233,669,808-$411,263,226 (dominates); multipliers off $245,467,479-$306,273,691; odds category-only $265,701,304-$306,273,691; maturity off $271,500,441-$306,273,691; growth off $306,273,691-$308,555,600. Sorted by range descending.
+
+## v8.4. Farm verdicts, break-even deposit, $/hour
+
+All three mirror lib/model.ts (farmVerdict, breakEvenDeposit, dollarsPerHour) and the page recomputes them the same way (app.js verdictOf/breakEvenOf/perHourOf; the verifier checks the formulas are identical in the source and recomputes every row). Verdict: SKIP is odds under 30% ("Long shot"), FARM is odds 60%+ and gas under $40 ("Cheap ticket"), THIN is the rest ("A middle ticket", or "Dear on {chain}" when gas is $40+). Counts: FARM 38, THIN 128, SKIP 32. The verifier checks the verdict label against the 8th farm step's call prefix for all 198 rows, and the gas/chain named in that step.
+
+Break-even deposit DEVIATES from the task's literal default, deliberately and documented in the source comment and the board caption: the task said "the deposit at which gas is 1% of expected value", but gas is at most 0.0069% of EV on every row, so that definition gives ~$0 on all 198 rows and says nothing. The shipped definition is the deposit at which gas is 1% of the deposit itself: D = 100 × gas. Values: $400 (42 rows, cheap chains), $1,600 (99 rows), $4,800 (57 rows, Ethereum). $/hour is expected value net of gas over active hours: (EV − gas) / hours, where hours = (45 + 10 × ceil(hold days / 7)) / 60 (setup + one 10-minute action a week + check and log; the hold is waiting, not work). It is protocol-level expected value per active hour; your share of any launch is unknown, so it compares rows and is not income. Range: min $280,150, max $30,107,708 (rank 1), median $1,934,189. Gas model unchanged from v7: 8 transactions at the chain's per-tx gas (Ethereum $6, cheap L2s $0.50, else $2).
+
+## v8.5. Byte diet (the hard part)
+
+v7 headroom was 195 bytes (dashboard) and 27 bytes (dossier text), so v8 had to cut ~3,900 bytes to fit the new sections. What was cut, with no number removed: the validation paragraph became a compact table; the model panel lost its duplicated validation numbers (they live in the proof table now); the lede, captions and notes were trimmed to short clauses; 14 narrative source comments were removed (the definition comments for break-even/$/h, flips and the tornado stay); two dead CSS rules (.why, .fit-summary) were removed; and app.js indentation went from 2 spaces to 1 space per level (mechanical, all leading-space counts were even, syntax re-checked). The Contenders section and the Token column were removed as content, not as bytes. Byte counts before/after:
+
+| | v7 | v8 |
+| --- | --- | --- |
+| Dashboard source (index.html + app.js + app.css) | 65,341 | 65,136 |
+| Dossier text | 65,509 | 65,400 |
+| Dossier.json | 1,201,090 | 847,889 |
+| Screenshots total | 850,353 (PNG) | 585,448 (JPEG q82) |
+| Board.json | 409,399 | 409,399 (byte-identical) |
+
+Screenshots dominate the dossier (94% in v7), so they were converted to JPEG quality 82 with PIL: 585,448 bytes total vs 846,865 PNG, a 261 KB saving. Text crispness was verified visually on the densest shot (2-proof): all table text, the tornado labels and the flip dollars stay legible; the kit check accepts JPEG. The dossier text now holds the whole source with no truncation (v8's first build truncated 66 lines of app.js and all of index.html, which is what forced the byte diet above). The fixed-point loop converged: install shots → rebuild (data.js gets the new screenshot_bytes) → re-render → convert → byte-identical after the second iteration (2-proof and 3-farm matched on the first, 1-cover and 4-detail on the second, because both show the self-test's screenshot sizes).
+
+## v8.6. Verification (all before commit)
+
+- /tmp/v8_verify.py: 87 checks, 0 failures. Reuses the v7 verifier (70 checks, all pass: 198 rows, ranks 1..198, strictly decreasing distinct EVs, watchlist 40/40, 144 excluded with reasons, comps, LOO x3.36, 5-fold x3.40, 10-fold x3.34, baselines, bootstrap, bands, rank ranges, edge rows, category dive, chains, histogram, live rows, calibration, scatter, farm steps 8×20-600) plus new checks: flips exact for the top 20, tornado exact (5 scenarios re-ranked), verdict prefix vs 8th farm step for all 198 rows, verdict counts, break-even values, $/h min/max/median, gas/EV max, app.js formula strings, no contenders key, dossier text whole, screenshot dimensions 1440x900, JPEG names.
+- Two builds byte-identical (out/ vs a second output dir, diff -r clean).
+- DOM check (headless Chrome, /tmp/shot/domcheck.mjs): the first 12 rendered board rows' Verdict, Break-even and $/h cells match the independent Python recompute exactly.
+- Screenshots visually inspected: cover verdict readable in 5 seconds with the control failing as expected; shot 2 shows the curve, the validation table, the tornado (its first label "$233.7M-$411.3M" was clipped at the SVG edge and fixed by widening the viewBox from 520 to 560) and flips rows 1-15; shot 3 shows verdicts, break-even and $/h for rows 1-9; shot 4 shows the rank-1 breakdown with the flip line.
+- Kit check: run after commit (it needs the commit sha); expected 4 passed, 1 failed transcripts_present, same as v6/v7.
+
 # Token Radar v7 build report (radar-8)
 
 Built 2026-11-22, local only, on top of v6 below. No wallet, account, repo, bundle, register, login or submit was done in this task; the parent submits (today's quota is exhausted: 5 of 5 used). v6 is already submitted (submission 01a20340-11ae-74f6-ac21-2c845d9618c0) and scored on dev at a provisional win rate of 0.941967 (20 wins, 0 losses, 20 games), slightly below v5's 0.945458. v7 is model cleanup ONLY, per the user's 19:50 WIB review: comps audit, honest time-split relabel, baseline table, revenue idea dropped for good. No layout redesign (that is the next step), no new panels beyond what the model story needs. The ranking CHANGED, but only slightly: the same 10 names in the top 10, three one-place swaps (section 5). Board.json is NOT byte-identical to v6 (sha256 9bddcfefc61fe957300eb46c84c870b7f7781abb13e6e8886d69e1aebec0dc74, v6 was 8273320982b1d49294f1fe5078e32762fa1d0f80888b99c3b1e40bba39b3d59e).

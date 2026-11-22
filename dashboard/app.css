@@ -109,16 +109,20 @@ tbody tr[data-selected="true"] { background: rgba(0, 230, 154, 0.10); }
 .checks li { font-size: 13px; line-height: 1.45; }
 .checks li b { color: var(--accent); font-weight: 600; }
 .checks li.fail b { color: var(--negative); }
-.why td { cursor: default; }
 .fit-details { margin-bottom: var(--step-4); }
-.fit-summary { cursor: pointer; padding: var(--step-4) var(--step-5); color: var(--accent); font-weight: 600; font-size: 14px; }
-.fit-summary:hover { color: var(--ink); }
 .fit { padding: 0 var(--step-5) var(--step-5); display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: var(--step-5); }
 .fit h2 { margin-bottom: var(--step-2); }
 .fit-chart svg { width: 100%; height: auto; display: block; }
 .fit-chart p, .fit-table p { margin-top: var(--step-2); }
 .fit-table table { font-size: 13px; }
 .fit-table th, .fit-table td { padding: var(--step-2) var(--step-3); }
+.verdict { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.v-farm { background: var(--accent); color: #06110c; }
+.v-thin { background: var(--accent-dim); color: var(--ink); }
+.v-skip { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.proof-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--step-5); padding: var(--step-5); }
+.proof-grid > div { display: grid; gap: var(--step-5); align-content: start; }
+table.compact th, table.compact td { padding: 6px 8px; font-size: 12.5px; }
 .panel-note { padding: var(--step-5); display: grid; gap: var(--step-2); border-bottom: 1px solid var(--border); }
 .panel-note p { max-width: 90ch; }
 .formula { font-family: var(--font-num); font-size: 13px; line-height: 1.7; color: var(--accent); overflow-wrap: anywhere; background: var(--canvas); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--step-3); }
@@ -154,5 +158,6 @@ tbody tr[data-selected="true"] { background: rgba(0, 230, 154, 0.10); }
   .shell { padding: var(--step-4); }
   .lede { grid-template-columns: 1fr; gap: var(--step-4); }
   .facts { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: var(--step-4); }
+  .proof-grid { grid-template-columns: 1fr; }
   .field input { min-width: 0; width: 100%; }
 }
