@@ -120,7 +120,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-12';
+export const MODEL_VERSION = 'radar-13';
 
 /** The two-stage odds coefficient: log-odds gained per SD of log10 TVL,
  * fitted by Newton on all 758 protocols (full-sample fit; the 5-fold CV

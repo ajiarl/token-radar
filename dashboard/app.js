@@ -252,7 +252,7 @@ var t = DATA.rows[0];
 var f = (DATA.flips || [])[0];
   var qb = quartileBand(t);
   return el('p', { class: 'verdict' }, 'Rank 1 ' + t.name + ' · ' + fmtUsd(t.implied_value_usd) + ' expected (P25-P75 ' + fmtUsd(qb[0]) + '-' + fmtUsd(qb[1]) + ') · Top 10 combined ' + fmtUsd(DATA.top10_ev_usd || 0) +
-   (f && f.flip_down ? ' · rank 1 holds unless −' + f.flip_down.pct.toFixed(1) + '%' : '.'));
+   (f && f.flip_down ? ' · rank 1 holds unless its launch value falls ' + f.flip_down.pct.toFixed(1) + '%' : '.'));
 }
 function controls() {
 var categories = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Other'; }))).sort();
@@ -787,11 +787,27 @@ var v = DATA.validation, b = v.baselines, w = v.timesplit, ig = DATA.integrity;
 return el('p', { class: 'strip' },
 'Held out: LOO x' + v.loo_multiple.toFixed(2) + ' vs flat x' + b.cat_median_loo.toFixed(2) + '/x' + b.global_median_loo.toFixed(2) +
 ' · time-split x' + w.old_to_young_multiple.toFixed(2) + '/x' + w.young_to_old_multiple.toFixed(2) +
-' · ' + DATA.watchlist_size + '/' + DATA.watchlist_size + ' watchlist · band P25-P75 covers ' + v.band_coverage + '% of 127 comps at nominal 50% · ' + ig.total + ' = ' + ig.ranked + ' + ' + ig.excluded + ' + ' + ig.traded + '.');
+' · ' + DATA.watchlist_size + '/' + DATA.watchlist_size + ' watchlist · band P25-P75 covers ' + v.band_coverage + '% of 127 comps at nominal 50%, 90% covers ' + v.pi90_coverage + '% · ' + ig.total + ' = ' + ig.ranked + ' + ' + ig.excluded + ' + ' + ig.traded + '.');
 }
 function flatLine() {
 return el('p', { class: 'strip' },
 'Growth and age barely move the price: growth is a 0.30 weight, age only the capped maturity, and neither sets the odds; the tornado shows how little either changes.');
+}
+function exampleLine() {
+var m = DATA.model;
+function predict(r) { return Math.exp(m.log_intercept + m.log_tvl_exponent * Math.log(Math.max(1, r.tvl_usd))); }
+function factor(r) { return r.mcap_usd / predict(r); }
+var r = null;
+(DATA.live || []).forEach(function (x) { if (x.slug === 'aave-v2') r = x; });
+var fallback = false;
+if (!r) {
+(DATA.live || []).forEach(function (x) { if (!r || factor(x) > factor(r)) r = x; });
+fallback = true;
+}
+if (!r) return null;
+return el('p', { class: 'strip' },
+'Check: ' + r.name + ' predicted ' + fmtUsd(predict(r)) + ', actual ' + fmtUsd(r.mcap_usd) + ', x' + Math.round(factor(r)) +
+'. Set aside from the fit for this' + (fallback ? ' (the live set\'s largest error)' : '') + '.');
 }
 function auditLine(passed, total) {
 return el('p', { class: 'strip' },
@@ -809,6 +825,7 @@ if (st) {
 shell.appendChild(auditLine(st.passed, st.total));
 shell.appendChild(proofLine());
 shell.appendChild(flatLine());
+shell.appendChild(exampleLine());
 }
 shell.appendChild(controls());
 if (state.tab === 'pre-token') shell.appendChild(boardTable());
