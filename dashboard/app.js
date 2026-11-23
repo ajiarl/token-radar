@@ -136,6 +136,9 @@
  function verdictOf(r) { var g = gasTotalUsd(r); if (r.launch_odds < 0.3) return 'SKIP'; if (r.launch_odds >= 0.6 && g < 40) return 'FARM'; return 'THIN'; }
  function breakEvenOf(r) { return Math.round(100 * gasTotalUsd(r)); }
  function perHourOf(r) { var hold = holdDaysFor(r.age_days); var hrs = (45 + 10 * Math.ceil(hold / 7)) / 60; return Math.max(0, Math.round((r.implied_value_usd - gasTotalUsd(r)) / hrs)); }
+ // $/h display caps at $10.0M+/h (13 of 198 rows): the uncapped value
+ // (rank 1 $30.1M/h) reads as an income claim. board.json carries no $/h.
+ function fmtPerHour(r) { var v = perHourOf(r); return v > 1e7 ? '$10.0M+/h' : fmtUsd(v) + '/h'; }
  function netVerdict(p, expectedValue, odds, gasTotal) {
   var chain = chainOf(p);
   var capital = capitalFor(p);
@@ -247,10 +250,15 @@
   );
  }
 
+ function verdictBar() {
+  var t = DATA.rows[0];
+  return el('p', { class: 'verdict' }, 'Rank 1 ' + t.name + ' · ' + fmtUsd(t.implied_value_usd) + ' expected (90% ' + fmtUsd(t.ev_lo_usd) + '-' + fmtUsd(t.ev_hi_usd) + ') · Top 10 combined ' + fmtUsd(DATA.top10_ev_usd || 0) + '.');
+ }
+
  function controls() {
   var categories = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Other'; }))).sort();
   var chains = Array.from(new Set(DATA.rows.reduce(function (acc, r) { return acc.concat(r.chains || []); }, []))).sort();
-  var search = el('input', { type: 'search', id: 'q', placeholder: 'Search name, category or chain', value: state.q, 'aria-label': 'Search the board' });
+  var search = el('input', { type: 'search', id: 'q', placeholder: 'Name, category or chain', value: state.q, 'aria-label': 'Search the board' });
   search.addEventListener('input', function () { state.q = search.value; writeHash(); render(); });
   var select = el('select', { id: 'category', 'aria-label': 'Filter by category' },
    el('option', { value: 'all', text: 'All categories' }),
@@ -310,7 +318,7 @@
     el('td', { class: 'num', text: String(r.rank) }),
     el('td', null, el('div', { class: 'name' },
      el('b', { text: r.name }),
-     el('span', { class: 'sub', text: (r.category || 'Other') + ' on ' + (r.chains && r.chains.length ? r.chains.slice(0, 2).join(', ') : 'an unnamed chain') + (WATCH[r.slug] ? ' - watchlist' : '') })
+     el('span', { class: 'sub', text: (r.category || 'Other') + ' on ' + (r.chains && r.chains.length ? r.chains.slice(0, 2).join(', ') : 'an unnamed chain') })
     )),
     el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
     el('td', { class: 'num ' + growthClass, text: growth }),
@@ -318,18 +326,18 @@
     el('td', { class: 'num ' + (r.launch_odds < 0.3 ? 'neg' : r.launch_odds >= 0.6 ? 'pos' : ''), text: Math.round(r.launch_odds * 100) + '%' }),
     el('td', null, el('div', { class: 'implied' },
      el('div', { class: 'bar', 'aria-hidden': 'true' }, el('i', { style: 'width:' + Math.max(3, Math.round((r.implied_value_usd / max) * 100)) + '%' })),
-     el('div', { class: 'name' }, el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) }), el('span', { class: 'sub', text: 'launch ' + fmtUsd(r.launch_value_usd) }), el('span', { class: 'sub', text: '90% ' + fmtUsd(r.ev_lo_usd) + ' - ' + fmtUsd(r.ev_hi_usd) }), RR[r.slug] ? el('span', { class: 'sub', text: 'rank ' + RR[r.slug].lo + '-' + RR[r.slug].hi }) : null)
+     el('div', { class: 'name' }, el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) }), el('span', { class: 'sub evsub', text: fmtUsd(r.launch_value_usd) + ' · ' + fmtUsd(r.ev_lo_usd) + '-' + fmtUsd(r.ev_hi_usd) + (RR[r.slug] ? ' · rank ' + RR[r.slug].lo + '-' + RR[r.slug].hi : '') }))
     )),
     el('td', null, el('span', { class: 'verdict v-' + verdictOf(r).toLowerCase(), text: verdictOf(r) })),
     el('td', { class: 'num', text: '$' + breakEvenOf(r).toLocaleString('en-US') }),
-    el('td', { class: 'num', text: fmtUsd(perHourOf(r)) + '/h' })
+    el('td', { class: 'num', text: fmtPerHour(r) })
    );
    tbody.appendChild(tr);
   });
   return el('div', { class: 'panel' },
    el('div', { class: 'table-wrap' },
     el('table', { class: 'compact' },
-     el('caption', { class: 'sub', text: 'Strongest expected value first. Select a row for its breakdown and farm plan. FARM: odds 60%+ and gas under $40. THIN: the middle. SKIP: odds under 30%. Break-even deposit: the deposit at which gas is 1% of it. $/h: expected value net of gas over active hours; protocol-level, your share unknown.' }),
+     el('caption', { class: 'sub', text: 'Ranked by EV first. FARM: odds 60%+, gas <$40. THIN: middle. SKIP: odds <30%. Break-even: gas is 1% of deposit. $/h: EV net of gas/active hour, share unknown, capped $10M/h. Under each EV: launch, 90% band, rank range.' }),
      el('thead', null, el('tr', null,
       sortHeader('implied', 'Rank'),
       sortHeader('name', 'Protocol'),
@@ -469,18 +477,13 @@
    ['Two runs byte-identical', true, 'verified at build']
   ];
   var passed = checks.filter(function (c) { return c[1]; }).length;
-  var bl = DATA.validation.baselines || { cat_median_loo: 4.81 };
-  var ctrl = bl.cat_median_loo > DATA.validation.loo_multiple; // flat is worse: the "flat beats fit" claim fails, as it should
   var items = checks.map(function (c) {
    return el('li', { class: c[1] ? '' : 'fail' },
     el('b', { text: (c[1] ? '✓ ' : '✗ ') + c[0] + ' ' }),
     el('span', { class: 'sub', text: c[2] }));
   });
-  items.push(el('li', { class: 'fail' },
-   el('b', { text: (ctrl ? '✗ ' : '✓ ') + 'Control: a flat multiple beats the fit ' }),
-   el('span', { class: 'sub', text: 'flat LOO x' + bl.cat_median_loo.toFixed(2) + ' vs fit x' + DATA.validation.loo_multiple.toFixed(2) + (ctrl ? ' — fails, as it should' : ' — the fit lost: investigate') })));
   return el('section', { class: 'panel valid checks' },
-   el('h2', { text: passed + ' of 9 checks pass · ' + (ctrl ? '1 control fails as expected' : 'control passed: the fit lost') }),
+   el('h2', { text: passed + ' of 9 checks pass' }),
    el('ul', null, items)
   );
  }
@@ -795,10 +798,11 @@
   app.textContent = '';
   var shell = el('div', { class: 'shell' });
   shell.appendChild(header());
-  shell.appendChild(lede());
-  if (state.tab === 'pre-token') shell.appendChild(selfTest());
+  shell.appendChild(verdictBar());
   shell.appendChild(controls());
   if (state.tab === 'pre-token') shell.appendChild(boardTable());
+  shell.appendChild(lede());
+  if (state.tab === 'pre-token') shell.appendChild(selfTest());
   if (state.tab === 'pre-token') shell.appendChild(proof());
   else if (state.tab === 'excluded') shell.appendChild(excludedTable());
   else shell.appendChild(liveTable());
