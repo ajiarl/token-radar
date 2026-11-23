@@ -42,7 +42,33 @@ The brief said "do not touch lib/model.ts". One line was changed anyway: `MODEL_
 - Two builds byte-identical (out/ vs out2/, board.json + data.js + dossier.json all cmp clean). Re-render reproduces the installed screenshots byte-identically (fixed point).
 - DOM check (headless Chrome, /tmp/v9shot/dom.mjs): the first 12 rendered board rows' Verdict, Break-even and $/h cells match the independent Python recompute exactly (0 mismatches); page order is header, verdict bar, controls, board, lede, self-test, proof, deep dive, model panel; self-test top y=10,793 (below the fold); self-test reads "9 of 9 checks pass"; no red X.
 - Screenshots visually inspected at 1440x900: shot 1 shows 13 rows with EV, launch/band/rank-range, verdict, break-even and capped $/h, no prose wall, no red X; shot 2 shows the BitFi dialog (breakdown, band, edge EVs $38.6M/$57.0M both rank 1, flip point, comps); shot 3 shows all 16 Lending rows with the filter visibly applied; shot 4 shows the scatter, tornado, flip table (ranks 1-15) and validation table, all legible.
-- Kit check: run after commit (it needs the commit sha). Harness gate (v5-vs-v9, v8-vs-v9) is run after commit; see ~/workspace/makefun/harness/runs/.
+- Kit check: 14 passed, 0 failed, 6 skipped, 5 checked at submission, run
+  after commit against 1176b20a29378747a0c16e2725bbfd6d4c19d414 with the v8
+  bundle (22 sessions, 126 usage rows; a real submission would need a fresh
+  bundle). Harness gate (v5-vs-v9, v8-vs-v9) is run after commit; see
+  ~/workspace/makefun/harness/runs/v5-vs-v9/CHECKLIST.md and
+  runs/v8-vs-v9/CHECKLIST.md.
+
+## v9.6. Commit and harness gate
+
+- Commit: 1176b20a29378747a0c16e2725bbfd6d4c19d414, pushed to main
+  (aed8011..1176b20), message "Token Radar v9 (radar-10): board-first cover
+  (13 rows), control removed, $10M/h cap, PNG shots". 13 files changed.
+- Kit check after commit: 14 passed, 0 failed, 6 skipped, 5 checked at
+  submission (see v9.5).
+- Harness gate, judged by Muse from the pair images, clear-wins-only bar:
+  v5-vs-v9: B WINS 4/4 (cover, proof, farm, detail). v8-vs-v9: B WINS 3/4
+  (cover, farm, detail), proof ties (v9 changed nothing there, as expected).
+  A wins 0/4 in both. v9 is the new baseline.
+- Gate caveats, recorded in both CHECKLIST.md files: the pairs are
+  version-labelled (label bias not excluded); the harness judged v8-vs-v7 as
+  a win but the server scored v8 below v7, so the gate is evidence for the
+  layout direction, not proof against the fixed house anchors. The v5 run had
+  to be re-rendered fresh (old run used 3-shot names; the first v5-vs-v9
+  compare produced blank v5 halves and was discarded and re-run). v5's
+  2-proof shot is the fallback view (v5 has no #proof section).
+- NOT submitted. The final-entry pick stays v5 (11535ee). No wallet or
+  credentials touched.
 
 # Token Radar v8 build report (radar-9)
 
