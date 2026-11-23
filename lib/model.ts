@@ -120,7 +120,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-10';
+export const MODEL_VERSION = 'radar-11';
 
 /** The two-stage odds coefficient: log-odds gained per SD of log10 TVL,
  * fitted by Newton on all 758 protocols (full-sample fit; the 5-fold CV
@@ -139,6 +139,8 @@ export interface ValidationResult {
   bootstrap_slope_p5: number;
   bootstrap_slope_p95: number;
   bootstrap_band_multiple: number;
+  /** LOO coverage (%) of the 90% prediction band (parameter + residual) on the 127 traded comps, computed at build. */
+  band_coverage?: number;
   alternatives: { name: string; multiple: number }[];
   /** Odds-model 5-fold CV on all 758 protocols (seed 42): v3 category-only baseline vs the adopted two-stage model, and the age model that was tested and rejected. */
   odds_cv: {
@@ -972,6 +974,23 @@ export function fitComps(snapshot: Snapshot): SnapshotProtocol[] {
   return tradedComps(snapshot).filter((p) => !FIT_EXCLUDED_SLUGS.has(p.slug));
 }
 
+/** LOO coverage of the 90% prediction band on the 127 traded comps: refit without
+ * each row, take its held-out residual, and count the rows within ±1.6449 x the
+ * residual SD (n-1 denominator). The percentage the dashboard ships. */
+export function bandCoverage(snapshot: Snapshot): number {
+  const comps = fitComps(snapshot);
+  const xs = comps.map((p) => Math.log(p.tvl_usd));
+  const ys = comps.map((p) => Math.log(p.mcap_usd!));
+  const residuals = xs.map((x, i) => {
+    const fit = olsFit(xs.filter((_, j) => j !== i), ys.filter((_, j) => j !== i));
+    return ys[i]! - (fit.intercept + fit.slope * x);
+  });
+  const sd = Math.sqrt(residuals.reduce((s, r) => s + r * r, 0) / (residuals.length - 1));
+  const half = 1.6449 * sd;
+  const covered = residuals.filter((r) => Math.abs(r) <= half).length;
+  return Math.round((covered / residuals.length) * 1000) / 10;
+}
+
 /** The v3 bootstrap, re-run at build time: 200 resamples of the 127 traded
  * protocols that price the fit, with replacement, seed 1234, each refit by
  * OLS. Returns the 200 (intercept, slope) pairs, in draw order. */
@@ -1582,7 +1601,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     floor_usd: snapshot.floor_usd,
     model,
     model_version: MODEL_VERSION,
-    validation: VALIDATION,
+    validation: { ...VALIDATION, band_coverage: bandCoverage(snapshot) },
     odds_table: odds.table.filter((r) => r.n >= 8),
     odds_model: odds.oddsModel,
     odds_base: Object.fromEntries(odds.byCategory),
