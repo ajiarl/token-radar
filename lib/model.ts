@@ -120,7 +120,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-11';
+export const MODEL_VERSION = 'radar-12';
 
 /** The two-stage odds coefficient: log-odds gained per SD of log10 TVL,
  * fitted by Newton on all 758 protocols (full-sample fit; the 5-fold CV
@@ -139,8 +139,16 @@ export interface ValidationResult {
   bootstrap_slope_p5: number;
   bootstrap_slope_p95: number;
   bootstrap_band_multiple: number;
-  /** LOO coverage (%) of the 90% prediction band (parameter + residual) on the 127 traded comps, computed at build. */
+  /** LOO coverage (%) of the shipped P25-P75 band on the 127 traded comps, computed at build. */
   band_coverage?: number;
+  /** The P25 and P75 of the LOO residual distribution, in log units: the
+   * dashboard's primary band is ev x exp(q25) to ev x exp(q75). */
+  band_q25?: number;
+  band_q75?: number;
+  /** Nominal level of the shipped band, in percent: 50 for the interquartile band. */
+  band_nominal?: number;
+  /** LOO coverage (%) of the 90% prediction band, kept for the detail view and proof. */
+  pi90_coverage?: number;
   alternatives: { name: string; multiple: number }[];
   /** Odds-model 5-fold CV on all 758 protocols (seed 42): v3 category-only baseline vs the adopted two-stage model, and the age model that was tested and rejected. */
   odds_cv: {
@@ -974,21 +982,48 @@ export function fitComps(snapshot: Snapshot): SnapshotProtocol[] {
   return tradedComps(snapshot).filter((p) => !FIT_EXCLUDED_SLUGS.has(p.slug));
 }
 
-/** LOO coverage of the 90% prediction band on the 127 traded comps: refit without
- * each row, take its held-out residual, and count the rows within ±1.6449 x the
- * residual SD (n-1 denominator). The percentage the dashboard ships. */
-export function bandCoverage(snapshot: Snapshot): number {
+/** Held-out residuals of the value fit: refit without each comp, then take
+ * its log residual. Shared by both coverage claims so they cannot diverge. */
+function looResiduals(snapshot: Snapshot): number[] {
   const comps = fitComps(snapshot);
   const xs = comps.map((p) => Math.log(p.tvl_usd));
   const ys = comps.map((p) => Math.log(p.mcap_usd!));
-  const residuals = xs.map((x, i) => {
+  return xs.map((x, i) => {
     const fit = olsFit(xs.filter((_, j) => j !== i), ys.filter((_, j) => j !== i));
     return ys[i]! - (fit.intercept + fit.slope * x);
   });
+}
+
+/** LOO coverage of the 90% prediction band on the 127 traded comps: count the
+ * held-out residuals within ±1.6449 x their SD (n-1 denominator). */
+export function bandCoverage(snapshot: Snapshot): number {
+  const residuals = looResiduals(snapshot);
   const sd = Math.sqrt(residuals.reduce((s, r) => s + r * r, 0) / (residuals.length - 1));
   const half = 1.6449 * sd;
   const covered = residuals.filter((r) => Math.abs(r) <= half).length;
   return Math.round((covered / residuals.length) * 1000) / 10;
+}
+
+/** The shipped primary band: the 25th and 75th percentiles of the LOO
+ * residuals (linear interpolation), and how many residuals that
+ * asymmetric interval actually covers. */
+export function bandQuantiles(snapshot: Snapshot): { q25: number; q75: number; coverage: number } {
+  const residuals = looResiduals(snapshot).slice().sort((a, b) => a - b);
+  const quantile = (p: number): number => {
+    const at = p * (residuals.length - 1);
+    const i = Math.floor(at);
+    const lo = residuals[i]!;
+    const hi = residuals[Math.min(i + 1, residuals.length - 1)]!;
+    return lo + (hi - lo) * (at - i);
+  };
+  const q25 = quantile(0.25);
+  const q75 = quantile(0.75);
+  const covered = residuals.filter((r) => r >= q25 && r <= q75).length;
+  return {
+    q25: round4(q25),
+    q75: round4(q75),
+    coverage: Math.round((covered / residuals.length) * 1000) / 10,
+  };
 }
 
 /** The v3 bootstrap, re-run at build time: 200 resamples of the 127 traded
@@ -1595,13 +1630,21 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     { label: 'Maturity off', lo_usd: Math.min(tMaturityOff, top10Total), hi_usd: Math.max(tMaturityOff, top10Total) },
     { label: 'Odds, category only', lo_usd: Math.min(tOddsCatOnly, top10Total), hi_usd: Math.max(tOddsCatOnly, top10Total) },
   ].sort((a, b) => (b.hi_usd - b.lo_usd) - (a.hi_usd - a.lo_usd) || (a.label < b.label ? -1 : 1));
+  const bands = bandQuantiles(snapshot);
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
     floor_usd: snapshot.floor_usd,
     model,
     model_version: MODEL_VERSION,
-    validation: { ...VALIDATION, band_coverage: bandCoverage(snapshot) },
+    validation: {
+      ...VALIDATION,
+      band_coverage: bands.coverage,
+      band_q25: bands.q25,
+      band_q75: bands.q75,
+      band_nominal: 50,
+      pi90_coverage: bandCoverage(snapshot),
+    },
     odds_table: odds.table.filter((r) => r.n >= 8),
     odds_model: odds.oddsModel,
     odds_base: Object.fromEntries(odds.byCategory),

@@ -136,6 +136,10 @@ function predictionBand(r) {
 var f = Math.exp(1.6449 * (DATA.validation.residual_sd_log || 2.06));
 return [Math.max(1, Math.round(r.ev_lo_usd / f)), Math.max(1, Math.round(r.ev_hi_usd * f))];
 }
+function quartileBand(r) {
+var v = DATA.validation;
+return [Math.max(1, Math.round(r.implied_value_usd * Math.exp(v.band_q25))), Math.max(1, Math.round(r.implied_value_usd * Math.exp(v.band_q75)))];
+}
 function netVerdict(p, expectedValue, odds, gasTotal) {
 var chain = chainOf(p);
 var capital = capitalFor(p);
@@ -246,8 +250,8 @@ el('div', { class: 'fact' }, el('span', { text: 'Live-token set aside' }), el('b
 function verdictBar() {
 var t = DATA.rows[0];
 var f = (DATA.flips || [])[0];
-var pb = predictionBand(t);
-  return el('p', { class: 'verdict' }, 'Rank 1 ' + t.name + ' · ' + fmtUsd(t.implied_value_usd) + ' expected (90% prediction band ' + fmtUsd(pb[0]) + '-' + fmtUsd(pb[1]) + ') · Top 10 combined ' + fmtUsd(DATA.top10_ev_usd || 0) +
+  var qb = quartileBand(t);
+  return el('p', { class: 'verdict' }, 'Rank 1 ' + t.name + ' · ' + fmtUsd(t.implied_value_usd) + ' expected (P25-P75 ' + fmtUsd(qb[0]) + '-' + fmtUsd(qb[1]) + ') · Top 10 combined ' + fmtUsd(DATA.top10_ev_usd || 0) +
    (f && f.flip_down ? ' · rank 1 holds unless −' + f.flip_down.pct.toFixed(1) + '%' : '.'));
 }
 function controls() {
@@ -302,7 +306,7 @@ var tbody = el('tbody');
 list.forEach(function (r) {
 var growth = r.change_7d === null ? 'n/a' : fmtPct(r.change_7d);
 var growthClass = r.change_7d === null ? '' : r.change_7d >= 0 ? 'pos' : 'neg';
-var pb = predictionBand(r);
+var qb = quartileBand(r);
 var vd = verdictOf(r);
 var tr = el('tr', {
 'data-selected': state.selected === r.slug ? 'true' : 'false',
@@ -321,7 +325,7 @@ el('td', { class: 'num', text: fmtAge(r.age_days) }),
 el('td', { class: 'num ' + (r.launch_odds < 0.3 ? 'neg' : r.launch_odds >= 0.6 ? 'pos' : ''), text: Math.round(r.launch_odds * 100) + '%' }),
 el('td', null, el('div', { class: 'implied' },
 el('div', { class: 'bar', 'aria-hidden': 'true' }, el('i', { style: 'width:' + Math.max(3, Math.round((r.implied_value_usd / max) * 100)) + '%' })),
-el('div', { class: 'name' }, el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) }), el('span', { class: 'sub evsub', title: '90% prediction band', text: fmtUsd(r.launch_value_usd) + ' · ' + fmtUsd(pb[0]) + '-' + fmtUsd(pb[1]) + (RR[r.slug] ? ' · rank ' + RR[r.slug].lo + '-' + RR[r.slug].hi : '') }))
+el('div', { class: 'name' }, el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) }), el('span', { class: 'sub evsub', title: 'P25-P75 band', text: 'P25-P75 ' + fmtUsd(qb[0]) + '-' + fmtUsd(qb[1]) + (RR[r.slug] ? ' · rank ' + RR[r.slug].lo + '-' + RR[r.slug].hi : '') }))
 )),
 el('td', null, el('span', { class: 'verdict v-' + vd.toLowerCase(), text: vd === 'FARM' ? 'FARM · +$' + perHourOf(r).toLocaleString('en-US') : vd })),
 el('td', { class: 'num', text: '$' + breakEvenOf(r).toLocaleString('en-US') }),
@@ -332,7 +336,7 @@ tbody.appendChild(tr);
 return el('div', { class: 'panel' },
 el('div', { class: 'table-wrap' },
 el('table', { class: 'compact' },
-el('caption', { class: 'sub', text: 'Ranked by EV. FARM: odds 60%+, gas <$40, net $/h >=$100. THIN: middle. SKIP: odds <30%. Break-even: gas is 1% of deposit. $/h is the net at a $1,000 ticket; the farm plan\'s examples use $100, so both sizes are stated, not conflicting. Under each EV: launch, 90% prediction band (bootstrap parameter band x exp(±1.6449 x residual SD)), rank range.' }),
+el('caption', { class: 'sub', text: 'Ranked by EV. FARM: odds 60%+, gas <$40, net $/h >=$100. THIN: middle. SKIP: odds <30%. Break-even: gas is 1% of deposit. $/h is the net at a $1,000 ticket; the farm plan\'s examples use $100, so both sizes are stated, not conflicting. Under each EV: P25-P75 (interquartile LOO residual band; ' + DATA.validation.band_coverage + '% of the 127 comps at nominal 50%), rank range. The 90% prediction interval is in the detail dialog.' }),
 el('thead', null, el('tr', null,
 sortHeader('implied', 'Rank'),
 sortHeader('name', 'Protocol'),
@@ -695,7 +699,7 @@ el('div', { class: 'formula' },
 'expected = launch x odds; launch = round( exp(' + m.log_intercept + ') x TVL ^ ' + m.log_tvl_exponent + ' x category x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x maturity )'
 ),
 el('p', { class: 'sub', text: 'Fit on the 127 traded protocols in this snapshot: log(mcap) = ' + m.log_intercept + ' + ' + m.log_tvl_exponent + ' x log(TVL), residual SD ' + m.residual_sd_log + ' log units: one expected value is uncertain by a factor of 3-4 either way. Category multipliers, exp(mean log residual) where n >= 4 (Basis Trading 3.09, Canonical Bridge 2.19, RWA 1.25, Dexs 1.18, Lending 0.40, Yield 0.50, Liquid Staking 0.39, Yield Aggregator 0.35); others 1.0. Canonical Bridge, Bridge, Liquid Staking: calibration only, excluded from the board. Growth barely predicts the residual (corr -0.14), so weight 0.30. Maturity is capped: 1.20 under a year, 1.10 for 1-2 years, 0.85 older. Median mcap/TVL falls 0.42 at $5-50M to 0.013 above $10B, so the fit is log-log, not linear. Launch odds, two-stage: the category token share, smoothed toward 54.9% with alpha 10, as the log-odds offset, plus 0.23 per SD of log10 TVL. Highest base shares: ' + odds + '. Age is not used for odds: the share rises with age because it is cumulative, and a protocol that has had years to launch and still has not is a worse forward bet; an age-band model wins the CV (log loss 0.597, AUC 0.743) on that signal alone, so it was rejected. Every row passes the watchlist exclusion; every farm plan ends with a costed net verdict.' }),
-el('p', { class: 'sub', text: 'Uncertainty, two ways. First, every expected value carries a 90% prediction band: the 5th-95th percentile of that row\'s launch value across 200 bootstrap refits (seed 1234; slope band ' + (DATA.bootstrap ? DATA.bootstrap.slope_p5 : v.bootstrap_slope_p5) + '-' + (DATA.bootstrap ? DATA.bootstrap.slope_p95 : v.bootstrap_slope_p95) + '), times its odds, widened by exp(±1.6449 x ' + m.residual_sd_log + ') for the residual dispersion, so it covers ' + v.band_coverage + '% of the 127 comps. Second, the board was re-scored at both slope ends (intercept refit, same odds); the counts are in the table above, and rank 1 is BitFi Basis under both.' })
+el('p', { class: 'sub', text: 'Uncertainty, two ways. First, every expected value carries a 90% prediction band: the 5th-95th percentile of that row\'s launch value across 200 bootstrap refits (seed 1234; slope band ' + (DATA.bootstrap ? DATA.bootstrap.slope_p5 : v.bootstrap_slope_p5) + '-' + (DATA.bootstrap ? DATA.bootstrap.slope_p95 : v.bootstrap_slope_p95) + '), times its odds, widened by exp(±1.6449 x ' + m.residual_sd_log + ') for the residual dispersion, so it covers ' + v.pi90_coverage + '% of the 127 comps. Second, the board was re-scored at both slope ends (intercept refit, same odds); the counts are in the table above, and rank 1 is BitFi Basis under both.' })
 );
 }
 var dialog = el('dialog', { class: 'detail', id: 'detail', 'aria-labelledby': 'detail-title' });
@@ -710,6 +714,7 @@ var steps = farmSteps(row);
 var recomputed = impliedOf(row, DATA.model);
 var diff = Math.abs(recomputed - row.implied_value_usd);
 var pb = predictionBand(row);
+var qb = quartileBand(row);
 var edge = null;
 (DATA.edge || []).forEach(function (x) { if (x.slug === row.slug) edge = x; });
 var flip = null;
@@ -733,7 +738,8 @@ el('div', null, el('span', { text: 'Maturity factor (' + fmtAge(row.age_days) + 
 el('div', null, el('span', { text: 'Launch value (if it launches)' }), el('b', { class: 'num', text: fmtUsd(row.launch_value_usd) })),
 el('div', null, el('span', { text: 'Launch odds (category share + TVL)' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '%' })),
 el('div', null, el('span', { text: 'Expected value = launch x odds' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) })),
-el('div', null, el('span', { text: '90% prediction band on expected value (parameter + residual)' }), el('b', { class: 'num', text: fmtUsd(pb[0]) + ' - ' + fmtUsd(pb[1]) })),
+el('div', null, el('span', { text: 'P25-P75 band on expected value (residual quartiles)' }), el('b', { class: 'num', text: fmtUsd(qb[0]) + ' - ' + fmtUsd(qb[1]) })),
+el('div', null, el('span', { text: '90% prediction interval on expected value (parameter + residual)' }), el('b', { class: 'num', text: fmtUsd(pb[0]) + ' - ' + fmtUsd(pb[1]) })),
 edge ? el('div', null, el('span', { text: 'Expected value at slope 0.370 (low end)' }), el('b', { class: 'num', text: fmtUsd(edge.ev_lo_slope_usd) + ' (rank ' + edge.rank_lo_slope + ')' })) : null,
 edge ? el('div', null, el('span', { text: 'Expected value at slope 0.634 (high end)' }), el('b', { class: 'num', text: fmtUsd(edge.ev_hi_slope_usd) + ' (rank ' + edge.rank_hi_slope + ')' })) : null,
 flip ? el('div', null, el('span', { text: 'Flip point' }), el('b', { class: 'num', text: (flip.flip_up ? '+' + flip.flip_up.pct.toFixed(1) + '% to pass #' + (row.rank - 1) : 'rank 1: nothing above') + (flip.flip_down ? ' · −' + flip.flip_down.pct.toFixed(1) + '% to fall to #' + (row.rank + 1) : '') })) : null
@@ -781,7 +787,11 @@ var v = DATA.validation, b = v.baselines, w = v.timesplit, ig = DATA.integrity;
 return el('p', { class: 'strip' },
 'Held out: LOO x' + v.loo_multiple.toFixed(2) + ' vs flat x' + b.cat_median_loo.toFixed(2) + '/x' + b.global_median_loo.toFixed(2) +
 ' · time-split x' + w.old_to_young_multiple.toFixed(2) + '/x' + w.young_to_old_multiple.toFixed(2) +
-' · ' + DATA.watchlist_size + '/' + DATA.watchlist_size + ' watchlist · band covers ' + v.band_coverage + '% of 127 comps at nominal 90% · ' + ig.total + ' = ' + ig.ranked + ' + ' + ig.excluded + ' + ' + ig.traded + '.');
+' · ' + DATA.watchlist_size + '/' + DATA.watchlist_size + ' watchlist · band P25-P75 covers ' + v.band_coverage + '% of 127 comps at nominal 50% · ' + ig.total + ' = ' + ig.ranked + ' + ' + ig.excluded + ' + ' + ig.traded + '.');
+}
+function flatLine() {
+return el('p', { class: 'strip' },
+'Growth and age barely move the price: growth is a 0.30 weight, age only the capped maturity, and neither sets the odds; the tornado shows how little either changes.');
 }
 function auditLine(passed, total) {
 return el('p', { class: 'strip' },
@@ -798,6 +808,7 @@ shell.appendChild(verdictBar());
 if (st) {
 shell.appendChild(auditLine(st.passed, st.total));
 shell.appendChild(proofLine());
+shell.appendChild(flatLine());
 }
 shell.appendChild(controls());
 if (state.tab === 'pre-token') shell.appendChild(boardTable());
